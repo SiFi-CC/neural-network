@@ -1,5 +1,3 @@
-# pip install tensorflow==2.2 numpy jupyterlab uproot matplotlib tqdm pandas xxhash lz4
-
 from sificc_lib.root_files import root_files
 
 from sificc_lib.utils import utils
