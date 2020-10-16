@@ -14,22 +14,6 @@ class utils:
         euclidean = np.sqrt(np.power(a.x-b.x,2)+np.power(a.y-b.y,2)+np.power(a.z-b.z,2))
         return euclidean
     
-    def points_match(a, b, x=1.3, y=5, z=1.3): #?
-        if np.abs(a[0]-b[0]) <= x \
-                and np.abs(a[1]-b[1]) <= y \
-                and np.abs(a[2]-b[2]) <= z:
-            return True
-        else:
-            return False
-    
-    def denormalize(target): #?
-        l_mean = np.array([ 0.00000000e+00,  1.04436986e+00,  2.12139647e+00,  2.07762743e+02,
-                            2.37990988e-01, -7.09122499e+00,  3.87358973e+02,  1.59501912e+00,
-                            3.53420089e+00])
-        l_std = np.array([ 1.        ,  1.67345542,  2.18747825, 37.67381048, 20.55412115,
-                           26.57806787, 40.59963918, 27.3746528 , 28.24459688])
-        return (target * l_std) + l_mean
-        
     def vec_as_np(tvector):
         return np.array([tvector.x, tvector.y, tvector.z])
     
@@ -38,6 +22,7 @@ class utils:
         return np.array(array).reshape((-1,)) if flatten else np.array(array)
     
     def exp_ma(l_points, factor=.9):
+        '''Applies smoothing to a sequence using exponential moving average'''
         l_smoothed = []
         for p in l_points:
             if l_smoothed:
@@ -90,14 +75,11 @@ class utils:
         print('{:8,d} ideal compton events with matching clusters'.format(n_matching_ideal_compton))
         print('{:8,d} ideal compton events with overlapping clusters'.format(n_overlap_matching_ideal))
         n, bins, _ = plt.hist(l_matching_idx, np.arange(0,np.max(l_matching_idx)+2))
-        plt.xticks(np.arange(0,np.max(l_matching_idx)+2), np.arange(1,np.max(l_matching_idx)+2))
-        #plt.title('argmax of e/p clusters for ideal compton events')
-        plt.xlabel('argmax of electorn and photon clusters')
+        plt.xticks(np.arange(0,np.max(l_matching_idx)+1), np.arange(1,np.max(l_matching_idx)+2))
+        plt.xlabel('argmax of electron and photon clusters')
         plt.ylabel('count')
         plt.show()
-        
-        print(n)
-        print(bins)
+        print('histogram bars\' count:', n)
         
     def show_simulation_setup(simulation):
         print('Scatterer:')
