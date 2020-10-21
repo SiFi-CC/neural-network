@@ -1,0 +1,14 @@
+###############
+# Requirements
+###############
+
+setuptools==41.0.0
+tensorflow==2.2
+numpy
+jupyterlab
+uproot
+matplotlib
+tqdm
+pandas
+xxhash
+lz4
