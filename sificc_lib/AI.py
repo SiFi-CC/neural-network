@@ -30,7 +30,7 @@ class MyCallback(keras.callbacks.Callback):
         logs['val_eff'] = np.mean(l_matches)
         logs['val_pur'] = np.sum(l_matches) / np.sum(y_pred[:,0])
         
-        self.ai.extend_history2(logs)
+        self.ai.append_history(logs)
         self.ai.save(self.file_name)
         
         if self.file_name is not None:
@@ -345,6 +345,7 @@ class AI:
         return l_matches
             
     def extend_history(self, history):
+        '''Extend the previous training history with the new training history logs'''
         if self.history is None or self.history=={}:
             self.history = history.history
         else:
@@ -352,7 +353,8 @@ class AI:
                 if key in history.history:
                     self.history[key].extend(history.history[key])
                     
-    def extend_history2(self, logs):
+    def append_history(self, logs):
+        '''Append the existing training history with the training logs of a signle epoch'''
         if self.history is None or self.history=={}:
             self.history = {}
             for key in logs.keys():
