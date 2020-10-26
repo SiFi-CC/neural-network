@@ -40,7 +40,7 @@ class DataModel():
         self.cluster_size = 9
         self.append_dim = True
         
-        self.__eng_std_factor = .2
+        self.__std_factor = 10
         
         # loading training matrices
         with open(file_name, 'rb') as f_train:
@@ -276,10 +276,10 @@ class DataModel():
     
     @property
     def __std_targets(self):
-        std_e_energy = [1.78606941263188] * np.array(self.__eng_std_factor)
-        std_p_energy = [1.6663689936376904] * np.array(self.__eng_std_factor)
-        std_e_position = [41.08060207, 20.77702422, 27.19018651]
-        std_p_position = [43.94193657, 27.44766386, 28.21021386]
+        std_e_energy = [1.78606941263188] / np.array(self.__std_factor)
+        std_p_energy = [1.6663689936376904] / np.array(self.__std_factor)
+        std_e_position = [41.08060207, 20.77702422, 27.19018651] / np.array(self.__std_factor)
+        std_p_position = [43.94193657, 27.44766386, 28.21021386] / np.array(self.__std_factor)
 
         std = np.concatenate((
             [1],

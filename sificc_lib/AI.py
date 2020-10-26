@@ -43,8 +43,7 @@ class MyCallback(keras.callbacks.Callback):
         
 class AI:
     def __init__(self, data_model, model_name=None):
-        '''SiFi-CC Neural Network
-        
+        '''Initializing an instance of SiFi-CC Neural Network
         '''
         self.data = data_model
         
@@ -54,19 +53,20 @@ class AI:
         self.energy_factor_limit= .06 * 2
         self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2
         
-        self.weight_type = .05
-        self.weight_e_cluster = .15
-        self.weight_p_cluster = .1
-        self.weight_pos_x = 12
-        self.weight_pos_y = 2
-        self.weight_pos_z = 8
-        self.weight_energy = 7
+        self.weight_type = 1
+        self.weight_e_cluster = 1
+        self.weight_p_cluster = 1
+        self.weight_pos_x = 1
+        self.weight_pos_y = 1
+        self.weight_pos_z = 1
+        self.weight_energy = 1
         
         self.callback = MyCallback(self, model_name)
         
     def train(self,*, epochs=100, verbose=0, shuffle=True, 
               shuffle_clusters=False, callbacks=None):
-        
+        '''Trains the AI for a fixed number of epoches
+        '''
         if callbacks is None:
             callbacks = [self.callback]
         else:
@@ -83,7 +83,6 @@ class AI:
                      base_l2=0, limbs_l2=0, 
                      conv_dropouts=[], activation='relu', 
                      pos_loss=None, energy_loss=None):
-        
         if len(conv_dropouts) == 0:
             conv_dropouts = [0] * len(conv_layers)
         assert len(conv_dropouts) == len(conv_layers)
