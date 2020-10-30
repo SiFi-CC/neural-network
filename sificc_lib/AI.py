@@ -53,13 +53,13 @@ class AI:
         self.energy_factor_limit= .06 * 2
         self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2
         
-        self.weight_type = 1
+        self.weight_type = 2
         self.weight_e_cluster = 1
         self.weight_p_cluster = 1
-        self.weight_pos_x = 1
+        self.weight_pos_x = 2.5
         self.weight_pos_y = 1
-        self.weight_pos_z = 1
-        self.weight_energy = 1
+        self.weight_pos_z = 2
+        self.weight_energy = 1.5
         
         self.callback = MyCallback(self, model_name)
         
