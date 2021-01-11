@@ -18,13 +18,13 @@ class MyCallback(keras.callbacks.Callback):
                 f_epoch.write('')
         
     def on_epoch_end(self, epoch, logs=None):
-        y_pred = self.ai.predict(self.ai.data.train_x)
+        y_pred = self.ai.predict(self.ai.data.train_x)[:,:-4]
         y_true = self.ai.data.train_row_y
         l_matches = self.ai._find_matches(y_true, y_pred, keep_length=False)
         logs['eff'] = np.mean(l_matches)
         logs['pur'] = np.sum(l_matches) / np.sum(y_pred[:,0])
         
-        y_pred = self.ai.predict(self.ai.data.validation_x)
+        y_pred = self.ai.predict(self.ai.data.validation_x)[:,:-4]
         y_true = self.ai.data.validation_row_y
         l_matches = self.ai._find_matches(y_true, y_pred, keep_length=False)
         logs['val_eff'] = np.mean(l_matches)
@@ -41,7 +41,7 @@ class MyCallback(keras.callbacks.Callback):
                     epoch, now.date().isoformat(), now.strftime('%H:%M:%S')))
 
         
-class AI:
+class AIQlty:
     def __init__(self, data_model, model_name=None):
         '''Initializing an instance of SiFi-CC Neural Network
         '''
@@ -60,6 +60,7 @@ class AI:
         self.weight_pos_y = 1
         self.weight_pos_z = 2
         self.weight_energy = 1.5
+        self.weight_qlty = 1
         
         self.callback = MyCallback(self, model_name)
         
@@ -78,18 +79,16 @@ class AI:
                        verbose=verbose, callbacks = callbacks)
         #self.extend_history(history)
     
-    def create_model(self, conv_layers=[], classifier_layers=[], dense_layers=[],
-                     type_layers=[], pos_layers=[], energy_layers=[], 
-                     base_l2=0, limbs_l2=0, 
-                     conv_dropouts=[], activation='relu', 
-                     pos_loss=None, energy_loss=None):
+    def init_model(self, conv_layers=[], classifier_layers=[], dense_layers=[],
+                   type_layers=[], pos_layers=[], energy_layers=[], base_l2=0, limbs_l2=0, 
+                   conv_dropouts=[], activation='relu', plot_summary=True):
         if len(conv_dropouts) == 0:
             conv_dropouts = [0] * len(conv_layers)
         assert len(conv_dropouts) == len(conv_layers)
         
         ###### input layer ######
-        feed_in = keras.Input(shape=self.data.get_features(0,1).shape[1:], name='inputs')
-        cnv = feed_in
+        self.feed_in = keras.Input(shape=self.data.get_features(0,1).shape[1:], name='inputs')
+        cnv = self.feed_in
         
         ###### convolution layers ######
         for i in range(len(conv_layers)):
@@ -113,60 +112,79 @@ class AI:
                                             name='dense_cluster_{}'.format(i+1))(cls)
             
         # e/p clusters classifiers
-        e_cluster = keras.layers.Dense(self.data.clusters_limit, activation='softmax', 
+        self.e_cluster = keras.layers.Dense(self.data.clusters_limit, activation='softmax', 
                                        name='e_cluster')(cls)
-        p_cluster = keras.layers.Dense(self.data.clusters_limit, activation='softmax', 
+        self.p_cluster = keras.layers.Dense(self.data.clusters_limit, activation='softmax', 
                                        name='p_cluster')(cls)
         
         # get the hardmax of clusters classifier
         e_cluster_1_hot = keras.layers.Lambda(
             lambda x: K.one_hot(K.argmax(x), self.data.clusters_limit), 
-            name='e_hardmax')(e_cluster)
+            name='e_hardmax')(self.e_cluster)
         p_cluster_1_hot = keras.layers.Lambda(
             lambda x: K.one_hot(K.argmax(x), self.data.clusters_limit), 
-            name='p_hardmax')(p_cluster)
+            name='p_hardmax')(self.p_cluster)
         
         ###### joining outputs ######
-        base_layer = keras.layers.Concatenate(axis=-1, name='join_layer')(
+        self.base_layer = keras.layers.Concatenate(axis=-1, name='join_layer')(
                                             [cnv, e_cluster_1_hot, p_cluster_1_hot])
         
         
         ###### event type layers ######
-        typ = base_layer
+        typ = self.base_layer
         for i in range(len(type_layers)):
             typ = keras.layers.Dense(type_layers[i], activation=activation, 
                                    kernel_regularizer = keras.regularizers.l2(limbs_l2), 
                                    name='dense_type_{}'.format(i+1))(typ)
             
-        event_type = keras.layers.Dense(1, activation='sigmoid', name='type')(typ)
+        self.event_type = keras.layers.Dense(1, activation='sigmoid', name='type')(typ)
         
         
         ###### event position ######
-        pos = base_layer
+        pos = self.base_layer
         for i in range(len(pos_layers)):
             pos = keras.layers.Dense(pos_layers[i], activation=activation, 
                                      kernel_regularizer= keras.regularizers.l2(limbs_l2), 
                                      name='dense_pos_{}'.format(i+1))(pos)
             
-        pos_x = keras.layers.Dense(2, activation=None, name='pos_x')(pos)
-        pos_y = keras.layers.Dense(2, activation=None, name='pos_y')(pos)
-        pos_z = keras.layers.Dense(2, activation=None, name='pos_z')(pos)
+        self.pos_x = keras.layers.Dense(2, activation=None, name='pos_x')(pos)
+        self.pos_y = keras.layers.Dense(2, activation=None, name='pos_y')(pos)
+        self.pos_z = keras.layers.Dense(2, activation=None, name='pos_z')(pos)
         
         
         ###### event energy ######
-        enrg = base_layer
+        enrg = self.base_layer
         for i in range(len(energy_layers)):
             enrg = keras.layers.Dense(energy_layers[i], activation=activation, 
                                       kernel_regularizer= keras.regularizers.l2(limbs_l2), 
                                       name='dense_energy_{}'.format(i+1))(enrg)
             
-        energy = keras.layers.Dense(2, activation=None, name='energy')(enrg)
+        self.energy = keras.layers.Dense(2, activation=None, name='energy')(enrg)
         
         ###### building the model ######
-        self.model = keras.models.Model(feed_in, [e_cluster, p_cluster, event_type, 
-                                                  pos_x, pos_y, pos_z, energy])
+        self.model = keras.models.Model(self.feed_in, [self.e_cluster, self.p_cluster, self.event_type, 
+                                                  self.pos_x, self.pos_y, self.pos_z, self.energy])
         self.history = None
-        self.model.summary()
+        if plot_summary:
+            self.model.summary()
+        
+    def extend_model(self, quality_layers=[], limbs_l2=0, activation='relu', plot_summary=True):
+        qlty = self.base_layer
+        for i in range(len(quality_layers)):
+            qlty = keras.layers.Dense(quality_layers[i], activation=activation, 
+                                   kernel_regularizer = keras.regularizers.l2(limbs_l2), 
+                                   name='dense_quality_{}'.format(i+1))(qlty)
+            
+        self.quality = keras.layers.Dense(4, activation=None, name='quality')(qlty)
+        
+        
+        
+        ###### building the model ######
+        self.model = keras.models.Model(self.feed_in, [self.e_cluster, self.p_cluster, self.event_type, 
+                                                  self.pos_x, self.pos_y, self.pos_z, self.energy, self.quality])
+        self.history = None
+        if plot_summary:
+            self.model.summary()
         
     def compile_model(self, learning_rate=0.0003):
         self.model.compile(optimizer= keras.optimizers.Nadam(learning_rate), 
@@ -178,6 +196,7 @@ class AI:
                                'pos_y': self._pos_loss,
                                'pos_z': self._pos_loss,
                                'energy': self._energy_loss,
+                               'quality': self._quality_loss,
                            }, 
                            metrics = {
                                'type' : [self._type_accuracy, self._type_tp_rate],
@@ -187,6 +206,7 @@ class AI:
                                'pos_y': [],
                                'pos_z': [],
                                'energy': [],
+                               'quality': [],
                            }, 
                            loss_weights = {
                                'type' : self.weight_type,
@@ -196,6 +216,7 @@ class AI:
                                'pos_y': self.weight_pos_y,
                                'pos_z': self.weight_pos_z,
                                'energy': self.weight_energy,
+                               'quality': self.weight_qlty,
                            })
     
     def _type_loss(self, y_true, y_pred):
@@ -290,15 +311,50 @@ class AI:
         
         return e_loss + p_loss
     
+    def _quality_loss(self, y_true, y_pred):
+        event_filter = y_true[:,0] # ∈ n
+        e_enrg_true = K.reshape(y_true[:,1],(-1,1)) # ∈ nx1
+        e_enrg_pred = K.reshape(y_pred[:,0],(-1,1)) # ∈ nx1
+        p_enrg_true = K.reshape(y_true[:,2],(-1,1)) # ∈ nx1
+        p_enrg_pred = K.reshape(y_pred[:,1],(-1,1)) # ∈ nx1
+        e_pos_true = K.reshape(y_true[:,3],(-1,1)) # ∈ nx1
+        e_pos_pred = K.reshape(y_pred[:,2],(-1,1)) # ∈ nx1
+        p_pos_true = K.reshape(y_true[:,4],(-1,1)) # ∈ nx1
+        p_pos_pred = K.reshape(y_pred[:,3],(-1,1)) # ∈ nx1
+        
+        e_enrg_loss = keras.losses.logcosh(e_enrg_true, e_enrg_pred) # ∈ n
+        e_enrg_loss = event_filter * e_enrg_loss
+        
+        p_enrg_loss = keras.losses.logcosh(p_enrg_true, p_enrg_pred) # ∈ n
+        p_enrg_loss = event_filter * p_enrg_loss
+        
+        e_pos_loss = keras.losses.logcosh(e_pos_true, e_pos_pred) # ∈ n
+        e_pos_loss = event_filter * e_pos_loss
+        
+        p_pos_loss = keras.losses.logcosh(p_pos_true, p_pos_pred) # ∈ n
+        p_pos_loss = event_filter * p_pos_loss
+        
+        return e_enrg_loss + p_enrg_loss + e_pos_loss + p_pos_loss
+    
+    @property
+    def predict_columns(self):
+        return ['is_compton', 'e_energy', 'p_energy', 
+                'e_pos_x', 'e_pos_y', 'e_pos_z', 
+                'p_pos_x', 'p_pos_y', 'p_pos_z', 
+                'e_energy_qlty', 'p_energy_qlty', 
+                'e_pos_qlty', 'p_pos_qlty']
+    
     def predict(self, data, denormalize=False, verbose=0):
         pred = self.model.predict(data)
         pred = np.concatenate([np.round(pred[2]), 
                 pred[6], 
                 pred[3][:,[0]], pred[4][:,[0]], pred[5][:,[0]], 
                 pred[3][:,[1]], pred[4][:,[1]], pred[5][:,[1]], 
+                pred[7][:,[0]], pred[7][:,[1]], pred[7][:,[2]], pred[7][:,[3]], 
                ], axis=1)
         if denormalize:
-            pred = self.data._denormalize_targets(pred)
+            pred = np.concatenate([self.data._denormalize_targets(pred[:,:-4]), 
+                                   pred[:,-4:]], axis=1) 
             
         return pred
     
@@ -423,6 +479,9 @@ class AI:
         elif mode == 'loss-energy':
             plot_metric(ax2, 'energy_loss', 'Energy', 'tab:cyan')
             plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
+        elif mode == 'loss-quality':
+            plot_metric(ax2, 'quality_loss', 'Quality', 'tab:cyan')
+            plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
         else:
             raise Exception('Invalid mode')
             
@@ -438,14 +497,41 @@ class AI:
         fig.tight_layout()
         plt.show()
         
-    def evaluate(self):
+    def calc_eff_pur(self, quality_filter=[None, None, None, None]):
+        y_pred = self.predict(self.data.test_x)
+        
+        for i in range(len(quality_filter)):
+            if quality_filter[i] is None:
+                quality_filter[i] = -np.inf
+                
+        qlty_filter = (y_pred[:,-4:] >= quality_filter).all(axis=1)
+        y_pred[:,0] = y_pred[:,0] * qlty_filter
+        y_pred = y_pred[:,:-4]
+        
+        y_true = self.data.test_row_y
+        l_matches = self._find_matches(y_true, y_pred, keep_length=False)
+        effeciency = np.mean(l_matches)
+        purity = np.sum(l_matches) / np.sum(y_pred[:,0])
+        
+        return [effeciency, purity]
+    
+        
+    def evaluate(self, quality_filter=[None, None, None, None]):
         [loss, e_cluster_loss, p_cluster_loss, type_loss, 
-         pos_x_loss, pos_y_loss, pos_z_loss, energy_loss, 
+         pos_x_loss, pos_y_loss, pos_z_loss, energy_loss, qlty_loss,
          e_cluster__cluster_accuracy, p_cluster__cluster_accuracy, 
          type__type_accuracy, type__type_tp_rate] = self.model.evaluate(
             self.data.test_x, self.data.test_y, verbose=0)
         
+        
         y_pred = self.predict(self.data.test_x)
+        for i in range(len(quality_filter)):
+            if quality_filter[i] is None:
+                quality_filter[i] = -np.inf
+        qlty_filter = (y_pred[:,-4:] >= quality_filter).all(axis=1)
+        y_pred[:,0] = y_pred[:,0] * qlty_filter
+        y_pred = y_pred[:,:-4]
+        
         y_true = self.data.test_row_y
         l_matches = self._find_matches(y_true, y_pred, keep_length=False)
         effeciency = np.mean(l_matches)
@@ -477,6 +563,8 @@ class AI:
                                                                  e_cluster_loss * self.weight_e_cluster))
         print('    -Cls p:       {:8.5f} * {:5.2f} = {:7.5f}'.format(p_cluster_loss, self.weight_p_cluster, 
                                                                  p_cluster_loss * self.weight_p_cluster))
+        print('    -Quality:     {:8.5f} * {:5.2f} = {:7.5f}'.format(qlty_loss, self.weight_qlty, 
+                                                                 qlty_loss * self.weight_qlty))
         print('  Accuracy:   {:8.5f}'.format(type__type_accuracy))
         print('    -TP rate:     {:8.5f}'.format(type__type_tp_rate))
         print('    -Cls e rate:  {:8.5f}'.format(e_cluster__cluster_accuracy))
@@ -530,8 +618,15 @@ class AI:
                 self.model.optimizer.set_weights(pkl.load(f_hist))
         
             
-    def plot_diff(self, mode='type-match', add_reco=True, focus=False):
+    def plot_diff(self, mode='type-match', add_reco=True, focus=False, quality_filter=[None, None, None, None]):
         y_pred = self.predict(self.data.test_x)
+        for i in range(len(quality_filter)):
+            if quality_filter[i] is None:
+                quality_filter[i] = -np.inf
+        qlty_filter = (y_pred[:,-4:] >= quality_filter).all(axis=1)
+        y_pred[:,0] = y_pred[:,0] * qlty_filter
+        y_pred = y_pred[:,:-4]
+        
         y_true = self.data.test_row_y
         y_reco = self.data.reco_test
 
@@ -635,7 +730,7 @@ class AI:
 
         # initialize the data to be plotted
         y_true = self.data._targets[pos:pos+1]
-        y_pred = self.predict(self.data.get_features(pos,pos+1))
+        y_pred = self.predict(self.data.get_features(pos,pos+1))[:,:-4]
         clusters = self.data._features[pos:pos+1]
         is_match = self._find_matches(y_true, y_pred)[0] == 1
 
@@ -696,9 +791,16 @@ class AI:
         plt.show()
         return is_match
     
-    def export_predictions_root(self, root_name):
+    def export_predictions_root(self, root_name, quality_filter=[None, None, None, None]):
         # get the predictions and true values
         y_pred = self.predict(self.data.test_x)
+        for i in range(len(quality_filter)):
+            if quality_filter[i] is None:
+                quality_filter[i] = -np.inf
+        qlty_filter = (y_pred[:,-4:] >= quality_filter).all(axis=1)
+        y_pred[:,0] = y_pred[:,0] * qlty_filter
+        y_pred = y_pred[:,:-4]
+        
         y_true = self.data.test_row_y
 
         # filter the results with the identified events by the NN
@@ -959,4 +1061,3 @@ class AI:
 
         # closing the root file
         file.close()
-
