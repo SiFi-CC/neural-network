@@ -10,6 +10,13 @@ class utils:
         else:
             return False
     
+    def is_energy_inside_cluster(energy, cluster_enrg, cluster_enrg_unc):
+        '''Checks if `energy` is within `cluster_enrg` and its uncertainties'''
+        if np.abs(energy - cluster_enrg) <= np.abs(cluster_enrg_unc):
+            return True
+        else:
+            return False
+    
     def euclidean_distance(a, b):
         euclidean = np.sqrt(np.power(a.x-b.x,2)+np.power(a.y-b.y,2)+np.power(a.z-b.z,2))
         return euclidean
