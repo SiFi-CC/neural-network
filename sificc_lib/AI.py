@@ -705,6 +705,7 @@ class AI:
         identified = y_pred[:,0].astype(bool)
         y_pred = y_pred[identified]
         y_true = y_true[identified,:-2]
+        origin_seq_no = self.data._seq[self.data.test_start_pos:][identified]
 
         # find the real event type of the identified events by the NN
         l_all_match = self._find_matches(y_true, y_pred, keep_length=True)
@@ -719,6 +720,7 @@ class AI:
         me = 0.510999
         arc_base = np.abs(1 - me *(1/p - 1/(e+p)))
         valid_arc = arc_base <= 1
+        origin_seq_no = self.data._seq[self.data.test_start_pos:][identified]
 
         # filter out invalid events from the predictions and events types
         y_pred = y_pred[valid_arc]
@@ -754,6 +756,7 @@ class AI:
 
         # defining the branch
         branch = {
+            'GlobalEventNumber': 'int32', # event sequence in the original simulation file
             'v_x': 'float32', # electron position
             'v_y': 'float32',
             'v_z': 'float32',
@@ -794,6 +797,7 @@ class AI:
 
         # filling the branch
         file['ConeList'].extend({
+            'GlobalEventNumber': origin_seq_no,
             'v_x': e_pos_x, 
             'v_y': e_pos_y,
             'v_z': e_pos_z,
@@ -828,6 +832,22 @@ class AI:
             'x_3': zeros, 
             'y_3': zeros,
             'z_3': zeros,
+        })
+
+        # defining the settings branch
+        branch2 = {
+            'StartEvent': 'int32', 
+            'StopEvent': 'int32',
+            'TotalSimNev': 'int32'
+        }
+
+        file['TreeStat'] = uproot.newtree(branch2, title='Evaluated events details')
+
+        # filling the branch
+        file['TreeStat'].extend({
+            'StartEvent': [self.data._seq[self.data.test_start_pos]], 
+            'StopEvent': [self.data._seq[-1]],
+            'TotalSimNev': [self.data._seq[-1]-self.data._seq[self.data.test_start_pos]+1]
         })
 
         # closing the root file

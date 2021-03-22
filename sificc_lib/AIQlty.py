@@ -807,6 +807,7 @@ class AIQlty:
         identified = y_pred[:,0].astype(bool)
         y_pred = y_pred[identified]
         y_true = y_true[identified,:-2]
+        origin_seq_no = self.data._seq[self.data.test_start_pos:][identified]
 
         # find the real event type of the identified events by the NN
         l_all_match = self._find_matches(y_true, y_pred, keep_length=True)
@@ -826,6 +827,7 @@ class AIQlty:
         y_pred = y_pred[valid_arc]
         l_all_match = np.array(l_all_match)[valid_arc]
         l_pos_match = np.array(l_pos_match)[valid_arc]
+        origin_seq_no = origin_seq_no[valid_arc]
 
         # create event type list (0:wrong, 1:only pos match, 2:total match)
         l_event_type = np.zeros(len(l_all_match))
@@ -856,6 +858,7 @@ class AIQlty:
 
         # defining the branch
         branch = {
+            'GlobalEventNumber': 'int32', # event sequence in the original simulation file
             'v_x': 'float32', # electron position
             'v_y': 'float32',
             'v_z': 'float32',
@@ -896,6 +899,7 @@ class AIQlty:
 
         # filling the branch
         file['ConeList'].extend({
+            'GlobalEventNumber': origin_seq_no,
             'v_x': e_pos_x, 
             'v_y': e_pos_y,
             'v_z': e_pos_z,
@@ -930,6 +934,22 @@ class AIQlty:
             'x_3': zeros, 
             'y_3': zeros,
             'z_3': zeros,
+        })
+        
+        # defining the settings branch
+        branch2 = {
+            'StartEvent': 'int32', 
+            'StopEvent': 'int32',
+            'TotalSimNev': 'int32'
+        }
+
+        file['TreeStat'] = uproot.newtree(branch2, title='Evaluated events details')
+
+        # filling the branch
+        file['TreeStat'].extend({
+            'StartEvent': [self.data._seq[self.data.test_start_pos]], 
+            'StopEvent': [self.data._seq[-1]],
+            'TotalSimNev': [self.data._seq[-1]-self.data._seq[self.data.test_start_pos]+1]
         })
 
         # closing the root file
