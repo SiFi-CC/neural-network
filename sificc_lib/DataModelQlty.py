@@ -2,7 +2,9 @@ import numpy as np
 from sificc_lib import utils
 
 class DataModelQlty():
-    '''Data model of the features and targets for the simulated data.
+    '''Data model of the features and targets for the simulated data and
+    the quality of predictions. The quality of predictions should be 
+    generated seperately from a trained model.
     Features R_n*(9*clusters_limit) format: {
         cluster entries, 
         cluster energy, 
@@ -345,7 +347,8 @@ class DataModelQlty():
     ################# Static methods #################
     @staticmethod
     def generate_training_data(simulation, output_name):
-        '''Build and store the generated features and targets from a ROOT simulation'''
+        '''Build and store the generated features and targets from a ROOT 
+        simulation.'''
         features = []
         targets = []
         l_valid_pos = []
