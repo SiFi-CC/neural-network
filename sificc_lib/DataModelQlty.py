@@ -2,9 +2,10 @@ import numpy as np
 from sificc_lib import utils
 
 class DataModelQlty():
-    '''Data model of the features and targets for the simulated data and
-    the quality of predictions. The quality of predictions should be 
-    generated seperately from a trained model.
+    '''Data model for the features and targets to train SiFi-CC Quality 
+    Neural Network. The training data should be generated seperately 
+    from a trained SiFi-CC Neural Network.
+    
     Features R_n*(9*clusters_limit) format: {
         cluster entries, 
         cluster energy, 
@@ -344,45 +345,3 @@ class DataModelQlty():
         # [t, e_energy_qlty, p_energy_qlty, e_pos_qlty, p_pos_qlty]
         return np.concatenate([self._targets[:,[0]], self._qlty], axis=1)
     
-    ################# Static methods #################
-    @staticmethod
-    def generate_training_data(simulation, output_name):
-        '''Build and store the generated features and targets from a ROOT 
-        simulation.'''
-        features = []
-        targets = []
-        l_valid_pos = []
-        l_events_seq = []
-        
-        for idx, event in enumerate(simulation.iterate_events()):
-            if event.is_distributed_clusters:
-                features.append(event.get_features())
-                targets.append(event.get_targets())
-                l_valid_pos.append(True)
-                l_events_seq.append(idx)
-            else:
-                l_valid_pos.append(False)
-                
-        features = np.array(features, dtype='float64')
-        targets = np.array(targets, dtype='float64')
-        
-        # extract the reco data for the valid events
-        reco = np.concatenate((
-            np.zeros((sum(l_valid_pos),1)), # event type
-            simulation.tree['RecoEnergy_e']['value'].array()[l_valid_pos].reshape((-1,1)),
-            simulation.tree['RecoEnergy_p']['value'].array()[l_valid_pos].reshape((-1,1)),
-            utils.l_vec_as_np(simulation.tree['RecoPosition_e']['position'].array()[l_valid_pos]),
-            utils.l_vec_as_np(simulation.tree['RecoPosition_p']['position'].array()[l_valid_pos]),
-        ), axis=1)
-        # reco type is true when e energy is not 0
-        reco[:,0] = reco[:,1] != 0
-        
-        # save features, targets, reco as numpy tensors
-        with open(output_name, 'wb') as f_train:
-            np.savez_compressed(f_train, 
-                                features=features, 
-                                targets=targets, 
-                                reco=reco,
-                                sequence = l_events_seq
-                               )
-        
