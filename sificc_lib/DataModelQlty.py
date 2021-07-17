@@ -1,8 +1,11 @@
 import numpy as np
 from sificc_lib import utils
 
-class DataModel():
-    '''Data model of the features and targets for the simulated data.
+class DataModelQlty():
+    '''Data model for the features and targets to train SiFi-CC Quality 
+    Neural Network. The training data should be generated seperately 
+    from a trained SiFi-CC Neural Network.
+    
     Features R_n*(9*clusters_limit) format: {
         cluster entries, 
         cluster energy, 
@@ -28,6 +31,13 @@ class DataModel():
         e position (x,y,z),
         p position (x,y,z),
     }
+    
+    Quality R_n*4 format: {
+        e energy quality,
+        p energy quality,
+        e position quality,
+        p position quality,
+    }
     '''
     def __init__(self, file_name, *, batch_size = 64, validation_percent = .05, test_percent = .1, 
                  weight_compton = 1, weight_non_compton = .75):
@@ -49,6 +59,7 @@ class DataModel():
             self._targets = npz['targets']
             self._reco = npz['reco']
             self._seq = npz['sequence']
+            self._qlty = npz['quality']
             
         # assert number of columns is correct
         assert self._features.shape[1] % self.cluster_size == 0
@@ -96,7 +107,8 @@ class DataModel():
             'pos_x': self._target_pos_x[start:end],
             'pos_y': self._target_pos_y[start:end],
             'pos_z': self._target_pos_z[start:end],
-            'energy': self._target_energy[start:end]
+            'energy': self._target_energy[start:end],
+            'quality': self._target_qlty[start:end]
         }
     
     def get_features(self, start=None, end=None):
@@ -117,6 +129,7 @@ class DataModel():
         self._targets = self._targets[sequence]
         self._reco = self._reco[sequence]
         self._seq = self._seq[sequence]
+        self._qlty = self._qlty[sequence]
         
     @property
     def steps_per_epoch(self):
@@ -327,44 +340,8 @@ class DataModel():
         # [t, e_enrg, p_enrg]
         return self._targets[:,[0,1,2]]
     
-    ################# Static methods #################
-    @staticmethod
-    def generate_training_data(simulation, output_name):
-        '''Build and store the generated features and targets from a ROOT simulation'''
-        features = []
-        targets = []
-        l_valid_pos = []
-        l_events_seq = []
-        
-        for idx, event in enumerate(simulation.iterate_events()):
-            if event.is_distributed_clusters:
-                features.append(event.get_features())
-                targets.append(event.get_targets())
-                l_valid_pos.append(True)
-                l_events_seq.append(idx)
-            else:
-                l_valid_pos.append(False)
-                
-        features = np.array(features, dtype='float64')
-        targets = np.array(targets, dtype='float64')
-        
-        # extract the reco data for the valid events
-        reco = np.concatenate((
-            np.zeros((sum(l_valid_pos),1)), # event type
-            simulation.tree['RecoEnergy_e']['value'].array()[l_valid_pos].reshape((-1,1)),
-            simulation.tree['RecoEnergy_p']['value'].array()[l_valid_pos].reshape((-1,1)),
-            utils.l_vec_as_np(simulation.tree['RecoPosition_e']['position'].array()[l_valid_pos]),
-            utils.l_vec_as_np(simulation.tree['RecoPosition_p']['position'].array()[l_valid_pos]),
-        ), axis=1)
-        # reco type is true when e energy is not 0
-        reco[:,0] = reco[:,1] != 0
-        
-        # save features, targets, reco as numpy tensors
-        with open(output_name, 'wb') as f_train:
-            np.savez_compressed(f_train, 
-                                features=features, 
-                                targets=targets, 
-                                reco=reco,
-                                sequence = l_events_seq
-                               )
-        
+    @property
+    def _target_qlty(self):
+        # [t, e_energy_qlty, p_energy_qlty, e_pos_qlty, p_pos_qlty]
+        return np.concatenate([self._targets[:,[0]], self._qlty], axis=1)
+    

@@ -10,9 +10,24 @@ class utils:
         else:
             return False
     
+    def is_energy_inside_cluster(energy, cluster_enrg, cluster_enrg_unc):
+        '''Checks if `energy` is within `cluster_enrg` and its uncertainties'''
+        if np.abs(energy - cluster_enrg) <= np.abs(cluster_enrg_unc):
+            return True
+        else:
+            return False
+    
     def euclidean_distance(a, b):
+        '''Compute the euclidean distance between two victor points'''
         euclidean = np.sqrt(np.power(a.x-b.x,2)+np.power(a.y-b.y,2)+np.power(a.z-b.z,2))
         return euclidean
+    
+    def euclidean_distance_np(points_1, points_2, keepdims=False):
+        '''Compute the euclidean distance between two numpy arrays representing 3D points'''
+        dis = np.power(points_1 - points_2, 2)
+        dis = np.sum(dis, axis=1, keepdims=keepdims)
+        dis = np.sqrt(dis)
+        return dis
     
     def vec_as_np(tvector):
         return np.array([tvector.x, tvector.y, tvector.z])

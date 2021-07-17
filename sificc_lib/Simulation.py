@@ -45,7 +45,8 @@ class Simulation:
         prog_bar = tqdm(total=self.num_entries, ncols=100, file=sys.stdout, desc=desc)
         bar_step = 0
         for start, end, basket in self.tree.iterate(Event.l_leaves, entrysteps=basket_size, 
-                                                    reportentries=True, namedecode='utf-8'):
+                                                    reportentries=True, namedecode='utf-8',
+                                                    entrystart=None, entrystop=None):
             length = end-start
             for idx in range(length):
                 yield self.__event_at_basket(basket, idx)
