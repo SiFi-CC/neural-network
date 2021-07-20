@@ -211,6 +211,10 @@ class DataModel():
         return self._targets[self.test_start_pos:]
     
     @property
+    def test_row_y_feat(self):
+        return self._features[self.test_start_pos:]
+    
+    @property
     def reco_valid(self):
         return self._reco[self.validation_start_pos: self.test_start_pos]
     

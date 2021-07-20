@@ -1358,9 +1358,6 @@ class AI:
             ax.set_ylim(-0.005,0.27)
             ax.grid()
             ax.legend()
-
-            print("Efficiency ", eff_cl)
-            print("           ", x_bar_cl)
             
             fig0 = plt.figure(figsize=(10,4)) 
             ax0 = fig0.add_subplot(1, 1, 1)   
@@ -1409,14 +1406,13 @@ class AI:
             y_bar_ep_match = [number_matches_1, number_matches_4, number_matches_3, number_matches_2]
 
             # Bar plot for number of data
-            print("Sums true / pred CE ", y_bar_ep_all[0]+y_bar_ep_all[2], y_bar_ep_pred[0]+y_bar_ep_pred[2])
-
+            #print("Sums true / pred CE ", y_bar_ep_all[0]+y_bar_ep_all[2], y_bar_ep_pred[0]+y_bar_ep_pred[2])
             x_bar_ep = np.array([1,2,3,4])
             fig4 = plt.figure(figsize=(10,4))
             ax4 = fig4.add_subplot(1, 1, 1)
             ax4.bar(x_bar_ep - width, y_bar_ep_all  ,width, color='tab:blue', label='True Compton events') 
-            ax4.bar(x_bar_ep ,        y_bar_ep_pred ,width, color='tab:red',  label='Type-matched Compton events') # Predi Comp ev
-            ax4.bar(x_bar_ep + width, y_bar_ep_match,width, color='tab:orange',label='Matched predictions') # Matched events
+            ax4.bar(x_bar_ep ,        y_bar_ep_pred ,width, color='tab:red',  label='Type-matched Compton events')
+            ax4.bar(x_bar_ep + width, y_bar_ep_match,width, color='tab:orange',label='Matched predictions')
             ax4.set_xticks(x_bar_ep)
             ax4.set_xticklabels(types_x)
             ax4.legend()
@@ -1432,7 +1428,6 @@ class AI:
             ax.grid()
             plt.show()
             plt.close()
-            # events_prediction_analysis end
             
         print("")
         
