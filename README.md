@@ -1,4 +1,7 @@
 # neural-network
+Neural network for event identification for the SiFi-CC.
+Outputs the energies and positions for electron and photon for Compton events.
+
 
 This work runs on python 3.6.5 or later.
 
