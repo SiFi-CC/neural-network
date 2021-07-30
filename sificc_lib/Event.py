@@ -6,6 +6,7 @@ import math
 import numpy as np
 from sificc_lib import utils
 from uproot_methods.classes.TVector3 import TVector3
+from scipy import constants
 
 class Event:
     '''Represents a single event in a ROOT file
@@ -257,8 +258,8 @@ class Event:
         Output feature dimention is 1x(9*clusters_limit)'''
         
         # sort the clusters and align the number of clusters to match `clusters_limit`
-        self._sort_clusters()
-        self._align_clusters()
+        self._sort_clusters()    # sort clusters by energy
+        self._align_clusters()   # fill with zero to have same input size
         
         # build the list of clusters features
         # the abs is taken for position uncertainty because the y dimention is negative
@@ -276,9 +277,21 @@ class Event:
         features = np.concatenate(l_clusters)
         return features
     
+    
+    def calculate_e_max_energy(self): # new function to set constraint penalty loss term
+        # Scattering at 180 degree, maximum energy transfer        
+        me = constants.m_e
+        c = constants.c
+        e_el = constants.e
+        real_e_max_energy = self.real_primary_energy / (1 + (me*c**2*10**(-6))/(e_el*2*self.real_primary_energy)) 
+        
+        return real_e_max_energy
+    
+    
     def get_targets(self):
         '''Generates and return the event targets. 
         Targets are of dimension 1x11 and the format is:
+        # Updated to 1x12 dimensions
         [
             event type (is ideal Compton or not),
             e energy,
@@ -287,6 +300,7 @@ class Event:
             p position (x,y,z),
             e cluster index,
             p cluster index,
+            e max energy        # for constraint
         ]'''
 
         # return the features only if the event is an ideal compton
@@ -294,6 +308,7 @@ class Event:
         if self.is_ideal_compton:
             
             # find cluster index of both e & p
+            # Which one of 8 clusters matches the real e or p position
             if self.e_clusters_count == 1:
                 e_cluster_index = self._arg_matching_cluster(self.real_e_position)
             else:
@@ -302,7 +317,9 @@ class Event:
                 p_cluster_index = self._arg_matching_cluster(self.real_p_position)
             else:
                 p_cluster_index = self._arg_closest_cluster(self.real_p_position)
-                
+            
+            real_e_max_energy = self.calculate_e_max_energy()
+            
             # build target features
             targets = np.concatenate((
                 [1],
@@ -312,8 +329,9 @@ class Event:
                 utils.vec_as_np(self.real_p_position),
                 [e_cluster_index],
                 [p_cluster_index],
+                [real_e_max_energy],
             ))
         else:
-            targets = np.zeros(11)
+            targets = np.zeros(12)
             
         return targets

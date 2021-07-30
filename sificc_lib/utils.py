@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import constants
 
 class utils:
     def is_point_inside_cluster(point, cluster, cluster_unc):
@@ -112,17 +113,20 @@ class utils:
                                                              simulation.absorber.thickness_y, 
                                                              simulation.absorber.thickness_z))
 
+        
     def calculate_normalizations(simulation, only_valid = True):
         l_entries = []
         l_energies = []
         l_energies_unc = []
         l_positions = []
         l_positions_unc = []
+        l_primary_energy = [] #
         l_e_energy = []
         l_e_position = []
         l_p_energy = []
         l_p_position = []
         for event in simulation.iterate_events():
+            
             if not event.is_distributed_clusters and only_valid:
                 continue
             l_entries.append(event.clusters_entries)
@@ -132,11 +136,14 @@ class utils:
             l_positions_unc.append(np.abs(utils.l_vec_as_np(event.clusters_position_unc, flatten=False)))
             
             if event.is_ideal_compton:
+                #print("ideal compton prim", event.real_primary_energy)
+                #print("ideal compton real el", event.real_e_energy)
+                l_primary_energy.append(event.real_primary_energy)   #
                 l_e_energy.append(event.real_e_energy)
                 l_e_position.append(utils.vec_as_np(event.real_e_position).reshape((1,-1)))
                 l_p_energy.append(event.real_p_energy)
                 l_p_position.append(utils.vec_as_np(event.real_p_position).reshape((1,-1)))
-                
+
         l_entries = np.concatenate(l_entries)
         l_energies = np.concatenate(l_energies)
         l_energies_unc = np.concatenate(l_energies_unc)
@@ -145,6 +152,7 @@ class utils:
         l_e_position = np.concatenate(l_e_position)
         l_p_position = np.concatenate(l_p_position)
 
+        
         print('Features normalization:')
         mean_entries = np.mean(l_entries)
         std_entries = np.std(l_entries)
@@ -201,3 +209,26 @@ class utils:
         print('\tmean', p_position_mean)
         print('\tstd', p_position_std)
         
+        # Normalization of el e max 
+        me = constants.m_e
+        c = constants.c
+        e_el = constants.e
+        l_primary_energy = np.array(l_primary_energy)
+        
+        a = e_el*2.*l_primary_energy
+        b = me*c**2.*10**(-6)
+        l_emax_energy = l_primary_energy / (1. + (b)/(a)) 
+        
+        mean_emax_energy = np.mean(l_emax_energy)
+        std_emax_energy = np.std(l_emax_energy)
+        print('\nreal electron max energy')
+        print('\tmean', mean_emax_energy)
+        print('\tstd', std_emax_energy)
+        
+        
+        print('\nOther normalization')
+        mean_primary_energy = np.mean(l_primary_energy)
+        std_primary_energy = np.std(l_primary_energy)
+        print('\nreal primary energy')
+        print('\tmean', mean_primary_energy)
+        print('\tstd', std_primary_energy)

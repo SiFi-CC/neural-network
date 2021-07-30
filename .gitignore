@@ -1,4 +1,11 @@
 # Ignore the following files
+ModelsTrained
+
 
 *.npz
 *.csv
+*.ipynb
+*.hst
+*.h5
+*.opt
+*.e

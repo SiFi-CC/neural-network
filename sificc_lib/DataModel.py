@@ -62,8 +62,8 @@ class DataModel():
         #normalize features, targets, and reco
         self._features = (self._features - self.__mean_features) / self.__std_features
         self._targets = (self._targets - self.__mean_targets) / self.__std_targets
-        self._reco = (self._reco - self.__mean_targets[:-2]) / self.__std_targets[:-2]
-        
+        self._reco = (self._reco - self.__mean_targets[:-3]) / self.__std_targets[:-3]  # cut away e, p cluster (-2) and emax energy (-3)
+      
     def _denormalize_features(self, data):
         if data.shape[-1] == self._features.shape[-1]:
             return (data * self.__std_features) + self.__mean_features
@@ -73,7 +73,7 @@ class DataModel():
         if data.shape[-1] == self._targets.shape[-1]:
             return (data * self.__std_targets) + self.__mean_targets
         elif data.shape[-1] == self._reco.shape[-1]:
-            return (data * self.__std_targets[:-2]) + self.__mean_targets[:-2]
+            return (data * self.__std_targets[:-3]) + self.__mean_targets[:-3]   # changed from -2 to -3
         else:
             raise Exception('data has invalid shape of {}'.format(data.shape))
     
@@ -81,11 +81,12 @@ class DataModel():
         if data.shape[-1] == self._targets.shape[-1]:
             return (data - self.__mean_targets) / self.__std_targets
         elif data.shape[-1] == self._reco.shape[-1]:
-            return (data - self.__mean_targets[:-2]) / self.__std_targets[:-2]
+            return (data - self.__mean_targets[:-3]) / self.__std_targets[:-3] # changed from -2 to -3
         else:
             raise Exception('data has invalid shape of {}'.format(data.shape))
     
     def get_targets_dic(self, start=None, end=None):
+        # Called in generate_batch, when train (model.fit)
         start = start if start is not None else 0
         end = end if end is not None else self.length
         
@@ -96,7 +97,8 @@ class DataModel():
             'pos_x': self._target_pos_x[start:end],
             'pos_y': self._target_pos_y[start:end],
             'pos_z': self._target_pos_z[start:end],
-            'energy': self._target_energy[start:end]
+            'energy': self._target_energy[start:end],
+            #'emax_energy': self._target_e_max_energy[start:end]   # new dic entry for maximum e- energy
         }
     
     def get_features(self, start=None, end=None):
@@ -209,11 +211,7 @@ class DataModel():
     @property
     def test_row_y(self):
         return self._targets[self.test_start_pos:]
-    
-    @property
-    def test_row_y_feat(self):
-        return self._features[self.test_start_pos:]
-    
+
     @property
     def reco_valid(self):
         return self._reco[self.validation_start_pos: self.test_start_pos]
@@ -267,34 +265,39 @@ class DataModel():
         mean_p_energy = [1.9273711829259783]
         mean_e_position = [209.63565735, -0.23477532, -5.38639807]
         mean_p_position = [3.85999635e+02, 1.30259990e-01, 2.13816374e+00]
+        mean_e_max_energy = [2.8568271447825566]  # helper value, to be changed
         
+        # size 12
         mean = np.concatenate((
             [0],
             mean_e_energy, 
             mean_p_energy,
             mean_e_position,
             mean_p_position,
-            [0,0]
+            [0,0],
+            mean_e_max_energy
         ))
         return mean
     
     @property
     def __std_targets(self):
-        std_e_energy = [1.78606941263188] / np.array(self.__std_factor)
+        std_e_energy = [1.78606941263188] / np.array(self.__std_factor) # Factor is 10 
         std_p_energy = [1.6663689936376904] / np.array(self.__std_factor)
         std_e_position = [41.08060207, 20.77702422, 27.19018651] / np.array(self.__std_factor)
         std_p_position = [43.94193657, 27.44766386, 28.21021386] / np.array(self.__std_factor)
-
+        std_e_max_energy = [2.729887003398097] / np.array(self.__std_factor)
+        
+        # size 12
         std = np.concatenate((
             [1],
             std_e_energy, 
             std_p_energy,
             std_e_position,
             std_p_position,
-            [1,1]
+            [1,1],
+            std_e_max_energy
         ))
         return std
-    
     
     @property
     def _target_type(self):
@@ -328,8 +331,8 @@ class DataModel():
     
     @property
     def _target_energy(self):
-        # [t, e_enrg, p_enrg]
-        return self._targets[:,[0,1,2]]
+        # [t, e_enrg, p_enrg, e_max]        # added e max on 3 index
+        return self._targets[:,[0,1,2,11]]
     
     ################# Static methods #################
     @staticmethod
@@ -341,7 +344,7 @@ class DataModel():
         l_events_seq = []
         
         for idx, event in enumerate(simulation.iterate_events()):
-            if event.is_distributed_clusters:
+            if event.is_distributed_clusters:                   
                 features.append(event.get_features())
                 targets.append(event.get_targets())
                 l_valid_pos.append(True)
@@ -351,6 +354,7 @@ class DataModel():
                 
         features = np.array(features, dtype='float64')
         targets = np.array(targets, dtype='float64')
+        
         
         # extract the reco data for the valid events
         reco = np.concatenate((
