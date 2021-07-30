@@ -4,6 +4,7 @@ class root_files:
     HPC_NEW = '/hpcwork/ae664232/InputforNN/PMMA180MeV0mmBPType3_NewStatistics.root'
     HPC_HIGHEST = '/hpcwork/ae664232/InputforNN/PMMA180MeV0mmBPType3_HighestStatistics.root'
     HPC_ENOUGH = '/hpcwork/ae664232/InputforNN/PMMA180MeV0mmBPType3_EnoughStatistics.root'
+    HPC_NEW_COMPLETE = '/home/jk759569/LLRResults/LLR_OPM0001.root'
     LOCAL_LOW = '/home/awal/Desktop/others-thesis/PMMA180MeV0mmBPType3_LowStatistics.root'
     LOCAL_HIGHER = '/home/awal/Desktop/others-thesis/PMMA180MeV0mmBPType3_HigherStatistics.root'
     PZ_LOW = '/net/data_g4rt/projects/SiFiCC/InputforNN/PMMA180MeV0mmBPType3_LowStatistics.root'
@@ -11,4 +12,5 @@ class root_files:
     PZ_NEW = '/net/data_g4rt/projects/SiFiCC/InputforNN/PMMA180MeV0mmBPType3_NewStatistics.root'
     PZ_HIGHEST = '/net/data_g4rt/projects/SiFiCC/InputforNN/PMMA180MeV0mmBPType3_HighestStatistics.root'
     PZ_ENOUGH = '/net/data_g4rt/projects/SiFiCC/InputforNN/PMMA180MeV0mmBPType3_EnoughStatistics.root'
+    LOCAL_NEW_COMPLETE = '/net/data_g4rt/projects/SiFiCC/InputforNN/NewSimulationSettings/LLR_OPM0001.root'
     
