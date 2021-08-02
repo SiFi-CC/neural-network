@@ -16,7 +16,7 @@ class MyCallback(keras.callbacks.Callback):
         self.file_name = file_name
         
         if file_name is not None:
-            with open(self.file_name + '.e', 'w') as f_epoch:
+            with open('ModelsTrained/' + self.file_name + '.e', 'w') as f_epoch:
                 f_epoch.write('')
         
     def on_epoch_end(self, epoch, logs=None):
@@ -36,7 +36,7 @@ class MyCallback(keras.callbacks.Callback):
         self.ai.save(self.file_name)
         
         if self.file_name is not None:
-            with open(self.file_name + '.e', 'a') as f_epoch:
+            with open('ModelsTrained/' + self.file_name + '.e', 'a') as f_epoch:
                 now = dt.datetime.now()
                 f_epoch.write('loss:{:5.3f} eff:{:5.3f}/{:5.3f} in epoch {:3d} at {} {}\n'.format(
                     logs['loss'], logs['eff'], logs['val_eff'], 
@@ -180,8 +180,8 @@ class AI:
                                'type' : self._type_loss,
                                'e_cluster': self._e_cluster_loss,
                                'p_cluster': self._p_cluster_loss,
-                               'pos_x': self._pos_loss_x,
-                               'pos_y': self._pos_loss,
+                               'pos_x': self._pos_loss,
+                               'pos_y': self._pos_loss_y,
                                'pos_z': self._pos_loss,
                                'energy': self._energy_loss, 
                            }, 
@@ -328,7 +328,7 @@ class AI:
             
             # Returns boolean tensor, true for which event a 
             greater_e    = tf.greater(pos_pred, cond_tf*max_scat ) # X between vol
-            smaller_e    = tf.greater(cond_tf*min_abs , pos_pred)  # X between vol
+            smaller_e    = tf.greater(cond_tf*min_abs, pos_pred)  # X between vol
             smallermin_e = tf.greater(cond_tf*min_scat, pos_pred)  # x too small
             largermax_e  = tf.greater(pos_pred, cond_tf*max_abs)   # x too large
            
@@ -373,18 +373,13 @@ class AI:
         p_pos_true = K.reshape(y_true[:,4],(-1,1)) # ∈ nx1     
         p_pos_pred = K.reshape(y_pred[:,1],(-1,1)) # ∈ nx1    
         
-         # e pos
+        # e pos
         e_loss = keras.losses.logcosh(e_pos_true, e_pos_pred) # ∈ n
         e_loss = event_filter * self._e_cluster_match * e_loss # (n*n*n) ∈ n
         
         # p pos
         p_loss = keras.losses.logcosh(p_pos_true, p_pos_pred) # ∈ n
         p_loss = event_filter * self._p_cluster_match * p_loss # (n*n*n) ∈ n
-        
-        # e pos [209.63565735, -0.23477532, -5.38639807] x y z
-        # p pos = [3.85999635e+02, 1.30259990e-01, 2.13816374e+00]
-        # std e [41.08060207, 20.77702422, 27.19018651] / 10
-        # std p [43.94193657, 27.44766386, 28.21021386] / 10
         
         def normalize_y_boundaries(x1,mean,std):
             return (x1 - mean)/std
@@ -395,9 +390,6 @@ class AI:
         
         maxY_e = normalize_y_boundaries(50.0,  -0.23477532,   (20.77702422/10) ) 
         maxY_p = normalize_y_boundaries(50.0, 1.30259990e-01, (27.44766386/10) )
-        print(" Min Max", minY_e, maxY_e)
-        
-        #K.print_tensor(e_pos_pred, message ='e pos pred')
         
         cond_tf = tf.ones_like(e_pos_pred) 
         
@@ -407,7 +399,9 @@ class AI:
             penalty_outsideY = tf.logical_or(too_small, too_large) # Boolean for activation of penalty
             
             cutted = tf.boolean_mask( pos_pred, too_large)
-            K.print_tensor(cutted, message ='toolarge')      # no too large values observed
+            cutted2 = tf.boolean_mask( pos_pred, too_small)
+            #K.print_tensor(cutted, message ='too large')      # no too large values observed
+            #K.print_tensor(cutted2, message ='too small')
             
             dist_min = tf.abs(tf.subtract(pos_pred,min_y))
             dist_max = tf.abs(tf.subtract(pos_pred,max_y))
@@ -423,8 +417,10 @@ class AI:
         e_penalty = isNotInVolumes(e_pos_pred, minY_e, maxY_e)
         p_penalty = isNotInVolumes(p_pos_pred, minY_p, maxY_p)
         
-        pos_penalty_e = event_filter * self._e_cluster_match * e_penalty
+        cut = tf.boolean_mask(e_pos_pred, p_penalty)
+        K.print_tensor(cut, message ='penalty')
         
+        pos_penalty_e = event_filter * self._e_cluster_match * e_penalty
         pos_penalty_p = event_filter * self._p_cluster_match * p_penalty
         
         return e_loss + p_loss + pos_penalty_e + pos_penalty_p
@@ -744,19 +740,19 @@ class AI:
         print('  Euc std:    {:8.5f}'.format(std_euc))
 
     def save(self, file_name):
-        self.model.save_weights(file_name+'.h5', save_format='h5')
-        with open(file_name + '.hst', 'wb') as f_hist:
+        self.model.save_weights('ModelsTrained/' + file_name + '.h5', save_format='h5')
+        with open('ModelsTrained/' + file_name + '.hst', 'wb') as f_hist:
             pkl.dump(self.history, f_hist)
-        with open(file_name + '.opt', 'wb') as f_hist:
+        with open('ModelsTrained/' + file_name + '.opt', 'wb') as f_hist:
             pkl.dump(self.model.optimizer.get_weights(), f_hist)
         
             
     def load(self, file_name, optimizer=False):
-        self.model.load_weights(file_name+'.h5')
-        with open(file_name+'.hst', 'rb') as f_hist:
+        self.model.load_weights('ModelsTrained/' + file_name+'.h5')
+        with open('ModelsTrained/' + file_name + '.hst', 'rb') as f_hist:
             self.history = pkl.load(f_hist)
         if optimizer:
-            with open(file_name+'.opt', 'rb') as f_hist:
+            with open('ModelsTrained/' + file_name + '.opt', 'rb') as f_hist:
                 self.model.optimizer.set_weights(pkl.load(f_hist))
      
     
@@ -867,7 +863,7 @@ class AI:
             plot_hist(y_prim,  1,  'primary energy', bin_width)
             plot_hist(data_diff,  1,  'difference e- energy real - predicted', bin_width)
     
-    
+    '''
     def evaluationComptonConesOld(self, mask = 'type', events='True'):
         # To be deleted when not needed anymore for cross checks
         
@@ -1062,7 +1058,7 @@ class AI:
             reconstructionCone(y_true, 'True')    
         else:
             reconstructionCone(y_pred, 'Prediction')
-
+        '''
             
     def isInsideVolume(self, mask = 'type', data = 'prediction'):
         y_pred = self.predict(self.data.test_x)
@@ -1149,16 +1145,12 @@ class AI:
             y_pred = y_pred[l_matches_pos]
             y_true = y_true[l_matches_pos]
         else:
-            
-            print("Y pred", y_pred)
-            print("Y pred", y_pred[:,0]==1)
             y_pred = y_pred[ y_pred[:,0]==1]
             y_true = y_true[ y_true[:,0]==1]
-            print(y_pred)
+            
         y_pred = self.data._denormalize_targets(y_pred)
         y_true = self.data._denormalize_targets(y_true)
-        
-                 
+
         if events == "True":
             e_energy = y_true[:,1]
             p_energy = y_true[:,2]
@@ -1203,7 +1195,7 @@ class AI:
             # Vector from origin to point of intersection of cone axis with x=0-plane
             vector_OC = vector_OA - vector_OA[0] * ( vector_OA - vector_OP ) / ( vector_OA[0] - vector_OP[0] )
             
-            if vector_OC[1] <= 0 and theta <= 90: # Apply selection
+            if vector_OC[1] <= 0 and theta <= 90: # Apply selection    vector_OC[1] >= 0 and 
 
                  # Angle selection
                 if theta >= 90:
@@ -1253,36 +1245,36 @@ class AI:
                 array_OP = np.append(array_OP, [vector_OP], axis=0)
 
         print('  Number of valid events (arccos): {:8.5f}       '.format(np.sum([array_OM[:,1]>array_OC[:,1]])))
+        print('  Number of valid events (arccos): {:8.5f}       '.format(np.sum([array_OM[:,1]<array_OC[:,1]])))
         print('  Sanity check (No. y_OM larger y_OC): {:8.5f}   '.format(  np.sum([array_OM[:,1]>array_OC[:,1]]) ))
         print('  No. axis missed, pos y_OC, 0 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>0])  ))
         print('  No. axis missed, pos y_OC, 5 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>5])  ))
-        print('  No. axis missed, pos y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]>0]>5]) / len(array_OM[:,1][array_OC[:,1]>0]) ))  
+        #print('  No. axis missed, pos y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]>0]>5]) / len(array_OM[:,1][array_OC[:,1]>0]) ))  
         print('  No. axis missed, neg y_OC, 0 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<0])  ))
         print('  No. axis missed, neg y_OC, 5 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) ))
-        print('  No. axis missed, neg y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) / len(array_OM[:,1][array_OC[:,1]<0]) ))      
+        #print('  No. axis missed, neg y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) / len(array_OM[:,1][array_OC[:,1]<0]) ))      
         
-        print("Outliers in MCtruth", array_OM[array_OM[:,1]>1000], array_OA[array_OM[:,1]>1000])
+        #print("Outliers in MCtruth", array_OM[array_OM[:,1]>1000], array_OA[array_OM[:,1]>1000])
         
+        # Special selected events in plots:
         #selection = array_OM[:,1]>1000  # [array_OM[:,1]>5]
-        #selection = (array_OP[:,0]<300) & (array_OC[:,2]>100)  # peculiar photon positions for forward scattering
-        selection = array_OM[:,1]<-5 # only negative
-        #selection = array_OM[:,1]>5 # only positive
-        '''
-        plt.figure()
-        plt.title('Cone axis interception with x=0 plane')
-        plt.scatter(array_OC[:,2], array_OC[:,1])
-        plt.xlabel("z")
-        plt.ylabel("y")
-        plt.show()'''
-
+        #selection = (array_OP[:,0]<300) & (array_OC[:,2]>100) # peculiar photon positions for forward scattering
+        selection = np.full_like(array_OM[:,1], False, dtype = bool)      
+        for i in range(0,len(array_OM[:,1])):
+            if(array_OC[:,1][i]>0 and array_OM[:,1][i]>5):
+                selection[i] = True
+            if(array_OC[:,1][i]<0 and array_OM[:,1][i]<-5):
+                selection[i] = True
+        
         plt.figure()
         plt.title(events)
         plt.scatter(array_OM[:,2], array_OM[:,1])
-        plt.scatter(array_OM[:,2][selection], array_OM[:,1][selection], marker='*', color='tab:red')
+        plt.scatter(array_OM[:,2][selection], array_OM[:,1][selection], marker='*', color='tab:red', label = 'Missed beam axis')
         plt.xlabel("z")
         plt.ylabel("y")
-        #plt.legend()
+        plt.legend()
         plt.ylim(-70,800)
+        plt.xlim(-170,170)
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_Mpoints_ZY')
         
         plt.figure()
@@ -1295,6 +1287,8 @@ class AI:
         plt.scatter(array_OC[:,0][selection], array_OC[:,1][selection], marker='*', color='tab:red')
         plt.xlabel("x")
         plt.ylabel("y")
+        plt.ylim(-130,130)
+        plt.xlim(-20,435)
         plt.legend()
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-y')
         
@@ -1308,6 +1302,8 @@ class AI:
         plt.scatter(array_OP[:,0][selection], array_OP[:,2][selection], marker='*', color='tab:red')
         plt.xlabel("x")
         plt.ylabel("z")
+        plt.ylim(-165,165)
+        plt.xlim(-20,435)
         plt.legend()
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-z')
         
@@ -1317,6 +1313,8 @@ class AI:
         plt.scatter(array_OC[:,2][selection], np.asarray(compton_angle)[selection], marker='*', color='tab:red')
         plt.xlabel("z of cone axis intersection")
         plt.ylabel("Compton cone angle")
+        plt.ylim(-5,95)
+        plt.xlim(-170,170)
         plt.legend()
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle')
         # Plot as heat map
@@ -1333,10 +1331,11 @@ class AI:
         #plt.scatter(array_OC[:,2][selection], np.asarray(compton_angle)[selection], marker='*', color='tab:red')
         plt.xlabel("z of cone axis intersection")
         plt.ylabel("Compton cone angle")
-        plt.legend()
+        plt.ylim(-5,95)
+        plt.xlim(-170,170)
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle_Heat')
-            
-            
+        
+        '''
         cone_open_plane = array_OC[:,1] - array_OM[:,1]
         plt.figure()
         plt.hist(cone_open_plane[cone_open_plane<3000], bins=1000)
@@ -1349,6 +1348,7 @@ class AI:
         plt.ylabel("Counts")
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_Hist_ConeAngle')
         plt.show()
+        '''
 
     def plot_diff(self, mode='type-match', add_reco=True, focus=False):
         y_pred = self.predict(self.data.test_x)
