@@ -51,7 +51,8 @@ class AI:
         self.model = None
         
         self.energy_factor_limit= .06 * 2
-        self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2
+        #self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2  # Old sim data set
+        self.position_absolute_limit = np.array([1.3, 10, 1.3]) * 2  # New sim data set
         
         self.weight_type = 2
         self.weight_e_cluster = 1
@@ -563,11 +564,11 @@ class AI:
         
             
     def load(self, file_name, optimizer=False):
-        self.model.load_weights(file_name+'.h5')
-        with open('ModelsTrained/' + file_name+'.hst', 'rb') as f_hist:
+        self.model.load_weights('ModelsTrained/' + file_name + '.h5')
+        with open('ModelsTrained/' + file_name + '.hst', 'rb') as f_hist:
             self.history = pkl.load(f_hist)
         if optimizer:
-            with open('ModelsTrained/' + file_name+'.opt', 'rb') as f_hist:
+            with open('ModelsTrained/' + file_name + '.opt', 'rb') as f_hist:
                 self.model.optimizer.set_weights(pkl.load(f_hist))
         
             
