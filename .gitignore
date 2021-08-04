@@ -1,5 +1,8 @@
 # Ignore the following files
-ModelsTrained
+ModelsTrained/
+.ipynb_checkpoints/
+__pycache__/
 
 *.npz
 *.csv
+*.ipynb
