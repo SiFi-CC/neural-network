@@ -51,8 +51,8 @@ class AI:
         self.model = None
         
         self.energy_factor_limit= .06 * 2
-        #self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2  # Old sim data set
-        self.position_absolute_limit = np.array([1.3, 10, 1.3]) * 2  # New sim data set
+        self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2  # Old sim data set
+        #self.position_absolute_limit = np.array([1.3, 10, 1.3]) * 2  # New sim data set
         
         self.weight_type = 2
         self.weight_e_cluster = 1
@@ -614,7 +614,6 @@ class AI:
         #print('{:6.0f} total Compton events'.format(np.sum(y_true[:,0])))
         #print('{:6d} NN matched events'.format(np.sum(l_matches)))
         #print('{:6d} Reco matched events'.format(np.sum(l_reco_matches)))
-
 
         fig_size = (10,4)
 
