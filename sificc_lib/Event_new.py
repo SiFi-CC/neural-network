@@ -49,6 +49,23 @@ class Event_new:
         self.clusters_entries = clusters_entries
         self.clusters_limit = clusters_limit
         
+        self.is_realcoinc = True if self.simulated_event_type == 2 else False
+        self.is_randcoinc = True if self.simulated_event_type == 3 else False
+        self.is_realcoinc_pileup = True if self.simulated_event_type == 5 else False
+        self.is_randcoinc_pileup = True if self.simulated_event_type == 6 else False
+        
+        self.is_mintwoclusters = True if self.clusters_count >= 2 else False
+        self.is_onecluster = True if self.clusters_count == 1 else False
+        
+        if scatterer.is_any_point_inside_x(self.clusters_position) \
+                and absorber.is_any_point_inside_x(self.clusters_position):
+            self.is_in_volumes = True
+        else:
+            self.is_in_volumes = False
+        
+        self.is_in_scatterer = True if scatterer.is_any_point_inside_x(self.clusters_position) else False
+        self.is_in_absorber = True if absorber.is_any_point_inside_x(self.clusters_position) else False
+        
         # check if the event is a valid event by considering the clusters associated with it
         # the event is considered valid if there are at least one cluster within each module of the SiFiCC
         if self.clusters_count >= 2 \
@@ -136,6 +153,18 @@ class Event_new:
             self.is_ideal_realcoinc_compton = True
         else:
             self.is_ideal_realcoinc_compton = False
+            
+        if self.is_ideal_compton \
+                and self.simulated_event_type == 5:
+            self.is_ideal_realcoinc_compton_pileup = True
+        else:
+            self.is_ideal_realcoinc_compton_pileup = False
+            
+        if self.is_ideal_compton \
+                and self.simulated_event_type == 3:
+            self.is_ideal_randcoinc_compton = True
+        else:
+            self.is_ideal_randcoinc_compton = False 
             
     def _aggregate_max_clusters(self):
         '''Aggregate the top clusters in term of cluster energy within the `cluster_limit` (inplace sorting)'''
@@ -295,6 +324,7 @@ class Event_new:
         features = np.concatenate(l_clusters)
         return features
     
+        
     def get_targets(self):
         '''Generates and return the event targets. 
         Targets are of dimension 1x11 and the format is:
@@ -306,12 +336,12 @@ class Event_new:
             p position (x,y,z),
             e cluster index,
             p cluster index,
-            simulated_event_type
         ]'''
 
         # return the features only if the event is an ideal compton
         # otherwise return 0s
-        if self.is_ideal_compton:
+        # Event targets only positive targets for Compton events real coincidences  : self.is_ideal_realcoinc_compton
+        if self.is_ideal_realcoinc_compton:
             
             # find cluster index of both e & p
             if self.e_clusters_count == 1:
@@ -332,9 +362,14 @@ class Event_new:
                 Utils_new.vec_as_np(self.real_p_position),
                 [e_cluster_index],
                 [p_cluster_index],
-                [self.simulated_event_type],   # added SimulatedEventType for new simulation set to targets
             ))
         else:
-            targets = np.zeros(12)
+            targets = np.zeros(11)
             
         return targets
+    
+    def get_event_type(self):
+        # definition to load simulated event type data into datamodel
+        # SimulatedEventType is for the new simulation, where real and random coincidences with pile-up are contained
+        #print("Event type ", self.simulated_event_type)
+        return self.simulated_event_type
