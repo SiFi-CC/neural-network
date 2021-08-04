@@ -51,6 +51,16 @@ class Utils_new:
     
     def show_root_file_analysis(simulation, only_valid=True):
         import matplotlib.pyplot as plt
+        n_count = 0
+        n_is_in_absorber = 0
+        n_is_in_scatterer = 0
+        n_is_in_volumes = 0
+        n_mintwoclusters = 0
+        n_oneclusters = 0
+        n_realcoinc = 0
+        n_randcoinc = 0
+        n_realcoinc_pileup = 0
+        n_randcoinc_pileup = 0
         n_distributed_clusters = 0
         n_compton = 0
         n_complete_compton = 0
@@ -59,15 +69,29 @@ class Utils_new:
         n_ep = 0
         n_pe = 0
         n_ideal_realcoinc_compton = 0
+        n_ideal_randcoinc_compton = 0
         n_distributed_clusters_randcoinc = 0
         n_distributed_clusters_realcoinc = 0
+        n_ideal_realcoinc_compton_pileup = 0
         n_matching_ideal_compton = 0
         n_overlap_matching_ideal = 0
         l_matching_idx = []
 
         for event in simulation.iterate_events():
+            n_count +=1
+            n_is_in_absorber +=1 if event.is_in_absorber else 0
+            n_is_in_scatterer +=1 if event.is_in_scatterer else 0
+            n_is_in_volumes +=1 if event.is_in_volumes else 0
+            n_mintwoclusters +=1 if event.is_mintwoclusters else 0
+            n_oneclusters +=1 if event.is_onecluster else 0
+            n_realcoinc += 1 if event.is_realcoinc else 0
+            n_randcoinc += 1 if event.is_randcoinc else 0
+            n_realcoinc_pileup += 1 if event.is_realcoinc_pileup else 0
+            n_randcoinc_pileup += 1 if event.is_randcoinc_pileup else 0
+            
             if not event.is_distributed_clusters and only_valid:
                 continue
+            
             n_distributed_clusters += 1 if event.is_distributed_clusters else 0
             n_compton += 1 if event.is_compton else 0
             n_complete_compton += 1 if event.is_complete_compton else 0
@@ -76,6 +100,9 @@ class Utils_new:
             n_ep += 1 if event.is_ep else 0
             n_pe += 1 if event.is_pe else 0
             n_ideal_realcoinc_compton += 1 if event.is_ideal_realcoinc_compton else 0
+            n_ideal_randcoinc_compton += 1 if event.is_ideal_randcoinc_compton else 0
+            n_ideal_realcoinc_compton_pileup += 1 if event.is_ideal_realcoinc_compton_pileup else 0
+            
             n_distributed_clusters_realcoinc += 1 if event.is_distributed_clusters_realcoinc else 0
             n_distributed_clusters_randcoinc += 1 if event.is_distributed_clusters_randcoinc else 0
             
@@ -88,6 +115,16 @@ class Utils_new:
                 n_overlap_matching_ideal += 1 if event.is_clusters_overlap else 0
 
         print('{:8,d} total entries'.format(simulation.num_entries))
+        print('{:8,d} total entries count events'.format(n_count))
+        print('{:8,d} total contains cluster in scatterer'.format(n_is_in_scatterer))
+        print('{:8,d} total contains cluster in absorber'.format(n_is_in_absorber))
+        print('{:8,d} total contains cluster in both volumes'.format(n_is_in_volumes))
+        print('{:8,d} total real coinc'.format(n_realcoinc))
+        print('{:8,d} total rand coinc'.format(n_randcoinc))
+        print('{:8,d} total real coinc with pile-up'.format(n_realcoinc_pileup))
+        print('{:8,d} total rand coinc with pile-up'.format(n_randcoinc_pileup))
+        print('{:8,d} one cluster'.format(n_oneclusters))
+        print('{:8,d} min two clusters'.format(n_mintwoclusters))
         print('{:8,d} valid entries with distributed clusters'.format(n_distributed_clusters))
         print('{:8,d} valid entries with distributed clusters real coinc'.format(n_distributed_clusters_realcoinc))
         print('{:8,d} valid entries with distributed clusters random coinc'.format(n_distributed_clusters_randcoinc))
@@ -98,6 +135,8 @@ class Utils_new:
         print('\t{:8,d} ep'.format(n_ep))
         print('\t{:8,d} pe'.format(n_pe))
         print('{:8,d} ideal real coincidence compton events'.format(n_ideal_realcoinc_compton))
+        print('{:8,d} ideal rand coincidence compton events'.format(n_ideal_randcoinc_compton))
+        print('{:8,d} ideal real coincidence compton events with pileup'.format(n_ideal_realcoinc_compton_pileup))
         print('{:8,d} ideal compton events with matching clusters'.format(n_matching_ideal_compton))
         print('{:8,d} ideal compton events with overlapping clusters'.format(n_overlap_matching_ideal))
         n, bins, _ = plt.hist(l_matching_idx, np.arange(0,np.max(l_matching_idx)+2))
