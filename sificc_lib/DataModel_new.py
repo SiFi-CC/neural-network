@@ -50,6 +50,7 @@ class DataModel_new():
             self._targets = npz['targets']
             self._reco = npz['reco']
             self._seq = npz['sequence']
+            self._sim_event_type = npz['sim_event_type']
             
         # assert number of columns is correct
         assert self._features.shape[1] % self.cluster_size == 0
@@ -118,6 +119,7 @@ class DataModel_new():
         self._targets = self._targets[sequence]
         self._reco = self._reco[sequence]
         self._seq = self._seq[sequence]
+        self._sim_event_type = self._sim_event_type[sequence]
         
     @property
     def steps_per_epoch(self):
@@ -136,6 +138,7 @@ class DataModel_new():
                 
                 features_batch = self.get_features(start, end)
                 targets_batch = self.get_targets_dic(start, end)
+                # Select only real coincidences for training data 
                 
                 if augment:
                     sequence, expanded_sequence = self.__get_augmentation_sequence()
@@ -342,13 +345,15 @@ class DataModel_new():
         targets = []
         l_valid_pos = []
         l_events_seq = []
+        sim_event_type = [] 
         
         for idx, event in enumerate(simulation.iterate_events()):
-            if event.is_distributed_clusters_realcoinc:           # is_distributed_clusters exchanged to real coincidences
+            if event.is_distributed_clusters:           # is_distributed_clusters, is_distributed_clusters_realcoinc exchanged to real coincidences
                 features.append(event.get_features())
                 targets.append(event.get_targets())
                 l_valid_pos.append(True)
                 l_events_seq.append(idx)
+                sim_event_type.append(event.get_event_type())
             else:
                 l_valid_pos.append(False)
                 
@@ -372,6 +377,7 @@ class DataModel_new():
                                 features=features, 
                                 targets=targets, 
                                 reco=reco,
-                                sequence = l_events_seq
+                                sequence = l_events_seq,
+                                sim_event_type = sim_event_type
                                )
         

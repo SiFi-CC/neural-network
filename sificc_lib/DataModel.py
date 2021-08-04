@@ -295,7 +295,6 @@ class DataModel():
         ))
         return std
     
-    
     @property
     def _target_type(self):
         # [t]
