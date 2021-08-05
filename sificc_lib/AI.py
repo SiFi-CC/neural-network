@@ -1249,22 +1249,31 @@ class AI:
         print('  Sanity check (No. y_OM larger y_OC): {:8.5f}   '.format(  np.sum([array_OM[:,1]>array_OC[:,1]]) ))
         print('  No. axis missed, pos y_OC, 0 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>0])  ))
         print('  No. axis missed, pos y_OC, 5 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>5])  ))
+        print('  No. axis missed, pos y_OC, 8 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>8])  ))
+        print('  No. axis missed, pos y_OC, 10 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>10])  ))
+        print('  No. axis missed, pos y_OC, 12 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>12])  ))
+        print('  No. axis missed, pos y_OC, 20 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>20])  ))
         #print('  No. axis missed, pos y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]>0]>5]) / len(array_OM[:,1][array_OC[:,1]>0]) ))  
         print('  No. axis missed, neg y_OC, 0 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<0])  ))
         print('  No. axis missed, neg y_OC, 5 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) ))
+        print('  No. axis missed, neg y_OC, 8 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-8]) ))
+        print('  No. axis missed, neg y_OC, 10 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-10]) ))
+        print('  No. axis missed, neg y_OC, 12 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-12]) ))
+        print('  No. axis missed, neg y_OC, 20 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-20]) ))
         #print('  No. axis missed, neg y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) / len(array_OM[:,1][array_OC[:,1]<0]) ))      
         
         #print("Outliers in MCtruth", array_OM[array_OM[:,1]>1000], array_OA[array_OM[:,1]>1000])
         
         # Special selected events in plots:
         #selection = array_OM[:,1]>1000  # [array_OM[:,1]>5]
-        #selection = (array_OP[:,0]<300) & (array_OC[:,2]>100) # peculiar photon positions for forward scattering
-        selection = np.full_like(array_OM[:,1], False, dtype = bool)      
-        for i in range(0,len(array_OM[:,1])):
-            if(array_OC[:,1][i]>0 and array_OM[:,1][i]>5):
-                selection[i] = True
-            if(array_OC[:,1][i]<0 and array_OM[:,1][i]<-5):
-                selection[i] = True
+        
+        selection = (array_OP[:,0]<300) & (array_OP[:,0]>100) # peculiar photon positions for forward scattering
+        #selection = np.full_like(array_OM[:,1], False, dtype = bool)      
+        #for i in range(0,len(array_OM[:,1])):
+        #    if(array_OC[:,1][i]>0 and array_OM[:,1][i]>5):
+        #        selection[i] = True
+        #    if(array_OC[:,1][i]<0 and array_OM[:,1][i]<-5):
+        #        selection[i] = True
         
         plt.figure()
         plt.title(events)
