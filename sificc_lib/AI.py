@@ -881,8 +881,9 @@ class AI:
             y = y_true
         
         volumes = self.get_volume_measures()
+        for key,value in volumes.items():
+            print(key, ':', value)
         
-        print("min max z ", volumes['min_z'], volumes['max_z'])
         eIsInsideScat = [(volumes['min_x_scat'] < y[:,3]) & (y[:,3] < volumes['max_x_scat']) 
                          & (volumes['min_y']< y[:,4]) & (y[:,4] < volumes['max_y']) 
                          & (volumes['min_z'] < y[:,5]) & (y[:,5] < volumes['max_z'])]
@@ -912,18 +913,11 @@ class AI:
         eIsInsideScatY = (volumes['min_y'] < y[:,4]) & (y[:,4] < volumes['max_y'])
         eIsInsideScatZ = (volumes['min_z'] <= y[:,5]) & (y[:,5] <= volumes['max_z'])
         
-        
-        
-        print(pIsInsideScatZ)
-        print(y[:,8][np.invert(pIsInsideScatZ)])
-        print(y[:,5][np.invert(eIsInsideScatZ)])
-        
         print("{:10d} Events (matched)".format(len(y)))
         print("\n{:10d} Events e predicted inside scatterer".format(np.sum(eIsInsideScat)))
         print("{:10d} Events e predicted inside absorber".format(np.sum(eIsInsideAbs)))
         print("{:10d} Events e pred. outside of volumes".format(np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
         print("{:8.4f} Percent of outside pred. from all (matched) events".format(100*np.sum([eIsNotInsideScat & eIsNotInsideAbs])/len(y)))
-        
         print('\n{:10d} ({:8.4f} %) x missed, e-'.format(np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)]), 100*np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
         print('{:10d} ({:8.4f} %) y missed, e-'.format(np.sum([np.invert(eIsInsideScatY)]), 100*np.sum([np.invert(eIsInsideScatY)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
         print('{:10d} ({:8.4f} %) z missed, e-'.format(np.sum(np.invert(eIsInsideScatZ)), 
