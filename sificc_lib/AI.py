@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from tensorflow import keras
 from tensorflow.keras import backend as K
 import tensorflow as tf
-from sificc_lib import utils
+from sificc_lib import utils, Simulation, root_files
 import pickle as pkl
 import datetime as dt
 from scipy.stats import gaussian_kde
@@ -61,6 +61,8 @@ class AI:
         self.weight_pos_y = 1
         self.weight_pos_z = 2
         self.weight_energy = 1.5
+        
+        self.count_read = 0
         
         self.savefigpath = ''
         self.callback = MyCallback(self, model_name)
@@ -425,10 +427,11 @@ class AI:
         ax2.tick_params(axis='y', labelcolor=color)
         ax2.grid()
         
-        color = 'tab:red'
-        ax1.set_xlabel('Epochs')
-        ax1.set_ylabel('Precision', color=color)  
-        ax1.tick_params(axis='y', labelcolor=color)
+        if mode != 'loss':
+            color = 'tab:red'
+            ax1.set_xlabel('Epochs')
+            ax1.set_ylabel('Precision', color=color)  
+            ax1.tick_params(axis='y', labelcolor=color)
         
         if summed_loss:
             plot_metric(ax2, 'loss', 'Loss', 'tab:blue')
@@ -439,7 +442,7 @@ class AI:
             plot_metric(ax1, 'e_cluster__cluster_accuracy', 'e cluster acc', 'tab:red')
             plot_metric(ax1, 'p_cluster__cluster_accuracy', 'p cluster acc', 'tab:brown')
         elif mode == 'eff':
-            plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
+            plot_metric(ax1, 'eff', 'Efficiency', 'tab:pink')
             plot_metric(ax1, 'pur', 'Purity', 'tab:orange')
         elif mode == 'loss':
             plot_metric(ax2, 'e_cluster_loss', 'Cluster e', 'tab:pink')
@@ -452,18 +455,18 @@ class AI:
         elif mode == 'loss-cluster':
             plot_metric(ax2, 'e_cluster_loss', 'Cluster e', 'tab:pink')
             plot_metric(ax2, 'p_cluster_loss', 'Cluster p', 'tab:orange')
-            plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
+            plot_metric(ax1, 'eff', 'Efficiency', 'tab:pink')
         elif mode == 'loss-pos':
             plot_metric(ax2, 'pos_x_loss', 'Pos x', 'tab:brown')
             plot_metric(ax2, 'pos_y_loss', 'Pos y', 'tab:red')
             plot_metric(ax2, 'pos_z_loss', 'Pos z', 'tab:purple')
-            plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
+            plot_metric(ax1, 'eff', 'Efficiency', 'tab:pink')
         elif mode == 'loss-type':
             plot_metric(ax2, 'type_loss', 'Type', 'tab:orange')
-            plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
+            plot_metric(ax1, 'eff', 'Efficiency', 'tab:pink')
         elif mode == 'loss-energy':
             plot_metric(ax2, 'energy_loss', 'Energy', 'tab:cyan')
-            plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
+            plot_metric(ax1, 'eff', 'Efficiency', 'tab:pink')
         else:
             raise Exception('Invalid mode')
             
@@ -474,8 +477,8 @@ class AI:
 
         ax2.yaxis.set_label_position('left')
         ax2.yaxis.tick_left()
-
-        fig.legend(loc='upper left')
+        if mode != 'loss':fig.legend(loc='upper left')
+        if mode == 'loss': fig.legend(loc='upper right')
         fig.tight_layout()
         plt.show()
         
@@ -737,26 +740,104 @@ class AI:
         plt.show()
         return is_match
     
-    
-    def cluster_is_in_scatterer(self, cluster):
-        # Used in events_prediction_analysis
-        # Input is cluster feature data
-        pos_x = cluster[3]
-        pos_y = cluster[4]
-        pos_z = cluster[5]
+    def get_volume_measures(self):
         
-        if 193.5 < pos_x and pos_x < 206.5 and -50.< pos_y and pos_y < 50. and  -49.2 < pos_z and pos_z < 49.2:
-            is_in_scatterer = 1
-            is_in_absorber = 0
-        elif 380.5 < pos_x < 419.5 and -50.< pos_y < 50. and  -49.2 < pos_z < 49.2:
-            is_in_absorber = 1
-            is_in_scatterer = 0
-        else:
-            is_in_scatterer = 0
-            is_in_absorber = 0
-        return is_in_scatterer, is_in_absorber
+        if self.count_read == 0:
+            simulation = Simulation(root_files.PZ_ENOUGH)
+            self.count_read += 1
+            self.volumes = {}
+            self.volumes['min_x_scat'] = simulation.scatterer.position.x - simulation.scatterer.thickness_x/2
+            self.volumes['max_x_scat'] = simulation.scatterer.position.x + simulation.scatterer.thickness_x/2
+            self.volumes['min_x_abs'] = simulation.absorber.position.x - simulation.absorber.thickness_x/2
+            self.volumes['max_x_abs'] = simulation.absorber.position.x + simulation.absorber.thickness_x/2
+            self.volumes['min_y'] = simulation.scatterer.position.y - simulation.scatterer.thickness_y/2
+            self.volumes['max_y'] = simulation.scatterer.position.y + simulation.scatterer.thickness_y/2
+            self.volumes['min_z'] = simulation.scatterer.position.z - simulation.scatterer.thickness_z/2
+            self.volumes['max_z'] = simulation.scatterer.position.z + simulation.scatterer.thickness_z/2
+        
     
-    def ep_is_in_scatterer(self, y, ep):  
+    def evaluation_positions(self, mask = 'type', data = 'prediction'):
+        """evaluation_positions checks how many events are not inside of the SiFi-CC volumes for either the predictions data = 'prediction' or the data = 'true'."""
+        
+        y_pred = self.predict(self.data.test_x)
+        y_true = self.data.test_row_y
+        
+        l_matches_all  = np.array(self._find_matches(y_true, y_pred, mask = None, keep_length = True)).astype(bool)   
+        l_matches_type = np.array(self._find_matches(y_true, y_pred, mask = [1] + ([0] * 8), keep_length = True)).astype(bool)
+        
+        if mask == 'type':
+            y_pred = y_pred[l_matches_type]
+            y_true = y_true[l_matches_type]
+        elif mask == 'all':
+            y_pred = y_pred[l_matches_all]
+            y_true = y_true[l_matches_all]
+            
+        y_pred = self.data._denormalize_targets(y_pred)
+        y_true = self.data._denormalize_targets(y_true)
+        
+        if data == 'prediction':
+            y = y_pred
+        else:
+            y = y_true
+        
+        self.get_volume_measures()
+        volumes = self.volumes
+        
+        for key,value in volumes.items():
+            print(key, ':', value)
+        
+        eIsInsideScat = [(volumes['min_x_scat'] < y[:,3]) & (y[:,3] < volumes['max_x_scat']) 
+                         & (volumes['min_y']< y[:,4]) & (y[:,4] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,5]) & (y[:,5] < volumes['max_z'])]
+        eIsInsideAbs  = [(volumes['min_x_abs']< y[:,3]) & (y[:,3] < volumes['max_x_abs']) 
+                         & ( volumes['min_y']< y[:,4]) & (y[:,4] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,5]) & (y[:,5] < volumes['max_z'])]
+        pIsInsideScat = [(volumes['min_x_scat'] < y[:,6]) & (y[:,6] < volumes['max_x_scat']) 
+                         & ( volumes['min_y']< y[:,7]) & (y[:,7] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,8]) & (y[:,8] < volumes['max_z'])]
+        pIsInsideAbs  = [(volumes['min_x_abs']< y[:,6]) & (y[:,6] < volumes['max_x_abs']) 
+                         & ( volumes['min_y']< y[:,7]) & (y[:,7] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,8]) & (y[:,8] < volumes['max_z'])]
+        
+        eIsNotInsideScat = np.invert(eIsInsideScat)
+        eIsNotInsideAbs  = np.invert(eIsInsideAbs)
+        pIsNotInsideScat = np.invert(pIsInsideScat)
+        pIsNotInsideAbs  = np.invert(pIsInsideAbs)
+        
+        # Checking single directions for photon and electron 
+        pIsInsideScatX = (volumes['min_x_scat'] < y[:,6]) & (y[:,6] < volumes['max_x_scat'])
+        pIsInsideAbsX = (volumes['min_x_abs'] < y[:,6]) & (y[:,6] < volumes['max_x_abs'])
+        pIsInsideScatY = (volumes['min_y'] < y[:,7]) & (y[:,7] < volumes['max_y'])
+        pIsInsideScatZ = (volumes['min_z'] <= y[:,8]) & (y[:,8] <= volumes['max_z'])
+        
+        eIsInsideScatX = (volumes['min_x_scat'] < y[:,3]) & (y[:,3] < volumes['max_x_scat'])
+        eIsInsideAbsX = (volumes['min_x_abs'] < y[:,3]) & (y[:,3] < volumes['max_x_abs'])
+        eIsInsideScatY = (volumes['min_y'] < y[:,4]) & (y[:,4] < volumes['max_y'])
+        eIsInsideScatZ = (volumes['min_z'] <= y[:,5]) & (y[:,5] <= volumes['max_z'])
+        
+        print("{:10d} Events (matched)".format(len(y)))
+        print("\n{:10d} Events e predicted inside scatterer".format(np.sum(eIsInsideScat)))
+        print("{:10d} Events e predicted inside absorber".format(np.sum(eIsInsideAbs)))
+        print("{:10d} Events e pred. outside of volumes".format(np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
+        print("{:8.4f} Percent of outside pred. from all (matched) events".format(100*np.sum([eIsNotInsideScat & eIsNotInsideAbs])/len(y)))
+        print('\n{:10d} ({:8.4f} %) x missed, e-'.format(np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)]), 100*np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) y missed, e-'.format(np.sum([np.invert(eIsInsideScatY)]), 100*np.sum([np.invert(eIsInsideScatY)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) z missed, e-'.format(np.sum(np.invert(eIsInsideScatZ)), 
+                                                       100*np.sum(np.invert(eIsInsideScatZ))
+                                                       /np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
+        
+        print("\n{:10d} Events ph predicted inside scatterer,".format(np.sum(pIsInsideScat)))
+        print("{:10d} Events ph predicted inside absorber".format(np.sum(pIsInsideAbs)))
+        print("{:10d} Events ph outside of volumes".format(np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
+        print("{:8.4f} Percent of hits from all (matched) events".format(100*np.sum([pIsNotInsideScat & pIsNotInsideAbs]) / len(y)))
+        print('\n{:10d} ({:8.4f} %) x missed, photon'.format(np.sum([np.invert(pIsInsideScatX) & np.invert(pIsInsideAbsX)]), 100*np.sum([np.invert(pIsInsideScatX) & np.invert(pIsInsideAbsX)])/np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) y missed, photon'.format(np.sum([np.invert(pIsInsideScatY)]), 100*np.sum([np.invert(pIsInsideScatY)])/np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) z missed, photon'.format(np.sum([np.invert(pIsInsideScatZ)]), 
+                                                           100*np.sum(np.invert(pIsInsideScatZ) )
+                                                           /np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
+    
+    
+    def _ep_is_in_scatterer(self, y, ep):  
         # Used in events_prediction_analysis
         # Input is target data from MC truth
         y=y[0] #all events
@@ -768,11 +849,18 @@ class AI:
             pos_x = y[6] 
             pos_y = y[7]
             pos_z = y[8]
+            
+        self.get_volume_measures()
+        volumes = self.volumes 
         
-        if 193.5 < pos_x and pos_x < 206.5 and -50.< pos_y and pos_y < 50. and  -49.2 < pos_z and pos_z < 49.2:
+        if volumes['min_x_scat'] < pos_x and pos_x < volumes['max_x_scat'] \
+                and volumes['min_y'] < pos_y and pos_y < volumes['max_y'] \
+                and volumes['min_z'] < pos_z and pos_z < volumes['max_z']:
             is_in_scatterer = 1
             is_in_absorber = 0
-        elif 380.5 < pos_x < 419.5 and -50.< pos_y < 50. and  -49.2 < pos_z < 49.2:
+        elif volumes['min_x_abs'] < pos_x < volumes['max_x_abs'] \
+                and volumes['min_y'] < pos_y and pos_y < volumes['max_y'] \
+                and volumes['min_z'] < pos_z and pos_z < volumes['max_z']:
             is_in_absorber = 1
             is_in_scatterer = 0
         else:
@@ -781,7 +869,7 @@ class AI:
          
         return is_in_scatterer, is_in_absorber
     
-    def iterate_assign_clusters(self, clusters):
+    def _iterate_assign_clusters(self, clusters):
         # Used in events_prediction_analysis
         # Assign each cluster by position to absorber or scatterer
         
@@ -795,7 +883,27 @@ class AI:
         is_in_absorber = 0
         
         for cl in range(0, len(clusters)):
-            is_in_scatterer, is_in_absorber = self.cluster_is_in_scatterer(clusters[cl])
+            
+            pos_x = clusters[cl][3]
+            pos_y = clusters[cl][4]
+            pos_z = clusters[cl][5]
+            
+            self.get_volume_measures()
+            volumes = self.volumes
+            
+            if volumes['min_x_scat'] < pos_x and pos_x < volumes['max_x_scat'] \
+                    and volumes['min_y'] < pos_y and pos_y < volumes['max_y'] \
+                    and volumes['min_z'] < pos_z and pos_z < volumes['max_z']:
+                is_in_scatterer = 1
+                is_in_absorber = 0
+            elif volumes['min_x_abs'] < pos_x < volumes['max_x_abs'] \
+                    and volumes['min_y'] < pos_y < volumes['max_y'] \
+                    and volumes['min_z'] < pos_z < volumes['max_z']:
+                is_in_absorber = 1
+                is_in_scatterer = 0
+            else:
+                is_in_scatterer = 0
+                is_in_absorber = 0
             
             number_cluster_absorber += is_in_absorber
             number_cluster_scatterer += is_in_scatterer
@@ -805,6 +913,13 @@ class AI:
         return number_cluster_absorber, number_cluster_scatterer, number_clusters
      
     def events_prediction_analysis(self, plots = 'all-events', save = False):
+        """events_prediction_analysis evaluates performance of predictions for different event types with respect to the energy prediction and the position prediction, 
+        for all events, events with diff. cluster numbers, clusters in scatterer, e or p in scatterer
+        
+        Keyword arguments:
+        plots -- 'all-events' (default), 'cluster-distribution', 'cluster-numbers', 'e-scatterer'
+        save -- saving figures, True or False
+        """
         # Evaluate performance of predictions for different event types
         # All events, events with diff. cluster numbers, clusters in scatterer, e or p in scatterer
         
@@ -843,18 +958,14 @@ class AI:
         for pos in range(0, len(clusters)):   # len(clusters)
             # iterate over all events
             # Count the number of clusters for each events
-            no_cl_abs, no_cl_scat, no_cl = self.iterate_assign_clusters(clusters[pos:pos+1])
+            no_cl_abs, no_cl_scat, no_cl = self._iterate_assign_clusters(clusters[pos:pos+1])
             list_no_cl_abs.append(no_cl_abs)
             list_no_cl_scat.append(no_cl_scat)
             list_no_cl.append(no_cl)
             
             # Where is electron, where is photon cluster from ground truth
-            e_scat, e_abs = self.ep_is_in_scatterer(y_true[pos:pos+1], 'e')
-            p_scat, p_abs = self.ep_is_in_scatterer(y_true[pos:pos+1], 'p')
-            
-            #e_scat_pred, e_abs_pred = self.ep_is_in_scatterer(y_pred[pos:pos+1], 'e')
-            #p_scat_pred, p_abs_pred = self.ep_is_in_scatterer(y_pred[pos:pos+1], 'p')
-            
+            e_scat, e_abs = self._ep_is_in_scatterer(y_true[pos:pos+1], 'e')
+            p_scat, p_abs = self._ep_is_in_scatterer(y_true[pos:pos+1], 'p')
             
             list_e_inAbsorber.append(e_abs)
             list_e_inScatterer.append(e_scat)
@@ -981,16 +1092,24 @@ class AI:
             ax_e.set_aspect('equal', adjustable='box')
             ax_e.set_ylim(-0.2,17.7)
             ax_e.set_xlim(-0.2,15)
-            #ax_e.grid()
             ax_e.legend()
             
             y_true_type = cl_y_true[l_matches_type]
             y_pred_type = cl_y_pred[l_matches_type]
             y_clus_type = cl_y_clusters[l_matches_type]
             
-            l_matches_all = np.array(self._find_matches_denorm(y_true_type, y_pred_type, mask=None, keep_length=True)).astype(bool)
-            l_matches_pos = np.array(self._find_matches_denorm(y_true_type, y_pred_type, mask=mask_position, keep_length=True)).astype(bool)
-            l_matches_energy = np.array(self._find_matches_denorm(y_true_type, y_pred_type, mask=mask_energy, keep_length=True)).astype(bool)
+            l_matches_all = np.array(self._find_matches_denorm(y_true_type, 
+                                                               y_pred_type, 
+                                                               mask=None, 
+                                                               keep_length=True)).astype(bool)
+            l_matches_pos = np.array(self._find_matches_denorm(y_true_type, 
+                                                               y_pred_type, 
+                                                               mask=mask_position, 
+                                                               keep_length=True)).astype(bool)
+            l_matches_energy = np.array(self._find_matches_denorm(y_true_type, 
+                                                                  y_pred_type, 
+                                                                  mask=mask_energy, 
+                                                                  keep_length=True)).astype(bool)
             l_mismatches_all = np.invert(l_matches_all) # Only mismatches, where the type was predicted correctly
             
             print('{:8.0f} Type matched, pos energy mismatched '.format( np.sum(l_mismatches_all) ))
@@ -1004,9 +1123,15 @@ class AI:
             deposited_energy_Emismatch, sum_energy_true_Emismatch, sum_energy_pred_Emismatch = select_matches_energy_deposition(np.invert(l_matches_energy), y_true_type, y_pred_type, y_clus_type)
 
             plt.figure(figsize=(5,5))
-            plt.scatter(deposited_energy, sum_energy_true, marker='.', color ='tab:blue', label = 'True ' + str(len(deposited_energy)) )
-            plt.scatter(deposited_energy_mismatch, sum_energy_pred_mismatch, marker='.', color ='tab:orange', label = 'False pred. ' + str(len(deposited_energy_mismatch)))
-            plt.scatter(deposited_energy_match, sum_energy_pred_match, color ='tab:cyan', marker='.', label = 'Matched pred. '+ str(len(deposited_energy_match)) )
+            plt.scatter(deposited_energy, sum_energy_true, marker='.', 
+                        color ='tab:blue', 
+                        label = 'True ' + str(len(deposited_energy)) )
+            plt.scatter(deposited_energy_mismatch, sum_energy_pred_mismatch, marker='.', 
+                        color ='tab:orange', 
+                        label = 'False pred. ' + str(len(deposited_energy_mismatch)))
+            plt.scatter(deposited_energy_match, sum_energy_pred_match, 
+                        color ='tab:cyan', marker='.', 
+                        label = 'Matched pred. '+ str(len(deposited_energy_match)) )
             plt.title("Energy deposition " + title)
             plt.xlabel("Summed cluster energy / MeV")
             plt.ylabel("Electron + photon energy / MeV") 
@@ -1105,8 +1230,14 @@ class AI:
             y_true_type = y_true[l_matches_type]
             y_pred_type = y_pred[l_matches_type]
             
-            l_matches_pos = np.array(self._find_matches_denorm(y_true, y_pred, mask_position, keep_length = True)).astype(bool)
-            l_matches_pos_type = np.array(self._find_matches_denorm(y_true_type, y_pred_type, mask_position, keep_length = True)).astype(bool)
+            l_matches_pos = np.array(self._find_matches_denorm(y_true, 
+                                                               y_pred, 
+                                                               mask_position, 
+                                                               keep_length = True)).astype(bool)
+            l_matches_pos_type = np.array(self._find_matches_denorm(y_true_type, 
+                                                                    y_pred_type, 
+                                                                    mask_position, 
+                                                                    keep_length = True)).astype(bool)
             
             y_true_pos = y_true[l_matches_pos]
             y_pred_pos = y_pred[l_matches_pos]            
@@ -1122,10 +1253,14 @@ class AI:
             pred_p_posy = y_pred_type[:,7]
             
             # Define x boundaries of SiFi-CC volumes
-            abs_max = 419.5
-            abs_min = 380.5            
-            scat_max = 206.5
-            scat_min = 193.5
+            
+            self.get_volume_measures()
+            volumes = self.volumes
+            
+            abs_max = volumes['max_x_abs']
+            abs_min = volumes['min_x_abs']
+            scat_max = volumes['max_x_scat']
+            scat_min = volumes['min_x_scat']
             
             # Electron: Sorting events to volumes
             bool_true_eInScat = np.logical_and(true_e_posx < scat_max, true_e_posx > scat_min)
@@ -1190,7 +1325,7 @@ class AI:
             ax0.scatter(true_e_posy, pred_e_posy, marker = '.',color = 'tab:blue')
             ax0.set_title("Distribution electron" + title)
             ax0.set_xlabel("True position / mm")
-            ax0.set_ylabel("Predicted position / MeV") 
+            ax0.set_ylabel("Predicted position / mm") 
             ax0.set_aspect('equal', adjustable='box')
             ax0.set_ylim(-70,70)
             ax0.set_xlim(-70,70)
@@ -1199,7 +1334,7 @@ class AI:
             ax1.scatter(true_p_posy, pred_p_posy, marker = '.',color = 'tab:orange')
             ax1.set_title("Distribution photon" + title)
             ax1.set_xlabel("True position / mm")
-            ax1.set_ylabel("Predicted position / MeV") 
+            ax1.set_ylabel("Predicted position / mm")
             ax1.set_aspect('equal', adjustable='box')
             ax1.set_ylim(-70,70)
             ax1.set_xlim(-70,70)
@@ -1231,7 +1366,7 @@ class AI:
             # Purity: Division by number of predicted Compton events within the selection cuts
             purity = np.sum(l_matches_length) / np.sum(y_pred[:,0])  
             
-            if mode =='selection':
+            if mode == 'selection':
                 return efficiency, efficiency_selection, purity, np.sum(l_matches_length)
             
             return efficiency, purity, np.sum(l_matches_length)
@@ -1298,8 +1433,8 @@ class AI:
                         y1_bar.append(len(cl_scat_y_pred))         # all valid events
                         y2_bar.append(np.sum(cl_scat_y_true[:,0])) # true compton events
                         y3_bar.append(np.sum(cl_scat_y_pred[:,0])) # predicted compton events
-                        number_typematch_cl_scat.append(np.sum(l_matches_type_cl_scat)) # Correctly type predicted events
-                        y4_bar.append(number_matches_scat)         # Compton events, correctly predicted and reconstructed
+                        number_typematch_cl_scat.append(np.sum(l_matches_type_cl_scat)) # Correctly type pred ev
+                        y4_bar.append(number_matches_scat)         # Compton events, correctly pred and reco
 
                         x_bar.append(cluster_scat_index)
                         y_eff_scat.append(eff_scat)
@@ -1452,12 +1587,236 @@ class AI:
             cl2scat_y_pred = list(map(y_pred.__getitem__, cl2_scat_mask))
             cl2scat_y_true = np.vstack(cl2scat_y_true)
             cl2scat_y_pred = np.vstack(cl2scat_y_pred)
-            eff_cl2_scat, pur_cl2_scat, number_matches_cl2_scat  = event_evaluation('2 Cluster in scatterer',  cl2scat_y_true, cl2scat_y_pred)
+            eff_cl2_scat, pur_cl2_scat, number_matches_cl2_scat = event_evaluation('2 Cluster in scatterer',  cl2scat_y_true, cl2scat_y_pred)
 
             print("\n{:6.0f} events for 2 cluster matches in scat ".format(len(cl2scat_y_true)))
             print("{:6.0f} matched events for 2 cluster matches in scat ".format(number_matches_cl2_scat))
             print("{:2.8f} effiecency, {:2.8f} purity fo 2 cluster matches in scat ".format(eff_cl2_scat, pur_cl2_scat))
     
+    def evaluation_cones(self, mask = 'type', events='True', save = False):
+        """Definition to evaluate the cones of true events or NN predictions,
+        to see which and how many events lead to a cone which misses the beam source axis 
+        
+        Keyword arguments:
+        mask -- for selection of matching predictions: can be: type (default), all, position, ''
+        events -- 'True' (default) for MC truth or '' empty for predictions
+        save -- to save plots: True or False (default)
+        """
+        
+        y_pred = self.predict(self.data.test_x)
+        y_true = self.data.test_row_y
+        
+        l_matches_all  = np.array(self._find_matches(y_true, y_pred, mask = None, keep_length = True)).astype(bool)   
+        l_matches_type = np.array(self._find_matches(y_true, y_pred, mask = [1] + ([0] * 8), keep_length = True)).astype(bool)
+        l_matches_pos  = np.array(self._find_matches(y_true, y_pred, mask = [1,0,0,1,1,1,1,1,1], keep_length = True)).astype(bool) # Position and type
+        
+        if mask == 'type':
+            y_pred = y_pred[l_matches_type]
+            y_true = y_true[l_matches_type]
+        elif mask == 'all':
+            y_pred = y_pred[l_matches_all]
+            y_true = y_true[l_matches_all]
+        elif mask == 'position':
+            y_pred = y_pred[l_matches_pos]
+            y_true = y_true[l_matches_pos]
+        else:
+            y_pred = y_pred[ y_pred[:,0]==1]
+            y_true = y_true[ y_true[:,0]==1]
+            
+        y_pred = self.data._denormalize_targets(y_pred)
+        y_true = self.data._denormalize_targets(y_true)
+
+        if events == "True":
+            e_energy = y_true[:,1]
+            p_energy = y_true[:,2]
+        else:
+            e_energy = y_pred[:,1]
+            p_energy = y_pred[:,2]
+            
+        me = 0.51099895        # electron mass in MeV
+        arc_base = np.abs(1 - me *(1/p_energy - 1/(e_energy + p_energy))) # Argument for arccos
+        valid_arc = arc_base <= 1                                         # arccos(x), x goes from -1 to 1
+        y_pred = y_pred[valid_arc]
+        y_true = y_true[valid_arc]
+        
+        print("Check argument of arccos: Invalid events", np.sum(np.invert(valid_arc)), " from ", len(valid_arc))
+        
+        if events == "True":
+            y = y_true
+        else:
+            y = y_pred
+            
+        print('  Number of valid events (arccos): {:8.5f}'.format(len(y)))
+
+        # Arrays for vectors with x,y,z components
+        array_OM, array_OC = np.empty((0,3), float), np.empty((0,3), float)
+        array_OA, array_OP = np.empty((0,3), float), np.empty((0,3), float)
+        compton_angle, y_selection = [], []
+       
+        for i in range(0, len(y)): 
+
+            e_energy = y[:,1][i]
+            p_energy = y[:,2][i]
+            
+            # Compton scattering angle (not accounting for Doppler effect)
+            theta = np.rad2deg( np.arccos(1.0 - me *(1.0/p_energy - 1.0/( e_energy + p_energy ))) )
+            
+            # Vector pointing to interaction point of electron (apex of cone)
+            vector_OA = np.array([ y[:,3][i], y[:,4][i], y[:,5][i] ])
+            
+            # Vector pointing to interaction point of photon
+            vector_OP = np.array([ y[:,6][i], y[:,7][i], y[:,8][i] ])
+            
+            # Vector from origin to point of intersection of cone axis with x=0-plane
+            vector_OC = vector_OA - vector_OA[0] * ( vector_OA - vector_OP ) / ( vector_OA[0] - vector_OP[0] )
+            
+            # Apply selection    vector_OC[1] >= 0 and 
+            if vector_OC[1] <= 0 and theta <= 90: 
+
+                 # Angle selection
+                if theta >= 90:
+                    # Case 2: Backward scattering, electron in absorber, (~ 3% back-scattering)
+                    theta = 180 - theta
+                else:
+                    # Case 1: Forward scattering, electron in scatterer
+                    theta = theta
+
+                compton_angle.append(theta)
+
+                # Vector pointing from apex of cone along cone axis to intersection with x=0 plane
+                vector_AC = vector_OC - vector_OA
+
+                # unit vector in AC
+                norm_factor_AC = np.linalg.norm(vector_AC)
+                norm_x_AC = vector_AC[0] / norm_factor_AC
+                norm_z_AC = vector_AC[2] / norm_factor_AC
+
+                # Define rotation axis, vectors in x and z plane (Rotation downwards along y)
+                nrot_factor = 1 / (np.sqrt( 1 + ( norm_z_AC / norm_x_AC )**2 ))
+                nx = nrot_factor * (- norm_z_AC / norm_x_AC)
+                ny = nrot_factor * 0
+
+                if vector_OC[1] >= 0:
+                    nz = nrot_factor * 1
+                else:
+                    nx = - nx
+                    nz = - nrot_factor * 1
+
+                # Rotation matrix
+                cos = np.cos(np.deg2rad(theta))
+                sin = np.sin(np.deg2rad(theta))
+                Rot = np.array([ [ nx**2*( 1 - cos ) + cos,   0 - nz*sin ,   nx*nz*( 1 - cos ) + 0   ], 
+                               [   0 + nz*sin             ,   0 + cos    ,   0 - nx*sin              ], 
+                               [   nz*nx*( 1 - cos ) -  0 ,   0 + nx*sin ,   nz**2*( 1 - cos ) + cos ]])
+
+                vector_AC_rot = Rot.dot(vector_AC)
+
+                # Intersection vector_AC_rot with x=0 plane, fix point is A
+                y_OM = vector_OA[1] - vector_OA[0]/vector_AC_rot[0] * vector_AC_rot[1]
+                z_OM = vector_OA[2] - vector_OA[0]/vector_AC_rot[0] * vector_AC_rot[2]
+
+                array_OM = np.append(array_OM, [[0.0, y_OM, z_OM]], axis=0)
+                array_OC = np.append(array_OC, [vector_OC], axis=0)
+                array_OA = np.append(array_OA, [vector_OA], axis=0)
+                array_OP = np.append(array_OP, [vector_OP], axis=0)
+
+        print('  Number of valid events (arccos): {:8.5f}       '.format(np.sum([array_OM[:,1]>array_OC[:,1]])))
+        print('  Number of valid events (arccos): {:8.5f}       '.format(np.sum([array_OM[:,1]<array_OC[:,1]])))
+        print('  Sanity check (No. y_OM larger y_OC): {:8.5f}   '.format(  np.sum([array_OM[:,1]>array_OC[:,1]]) ))
+        print('  No. axis missed, pos y_OC, 0 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>0])  ))
+        print('  No. axis missed, pos y_OC, 5 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>5])  ))
+        print('  No. axis missed, pos y_OC, 8 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>8])  ))
+        print('  No. axis missed, pos y_OC, 10 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>10])  ))
+        print('  No. axis missed, pos y_OC, 12 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>12])  ))
+        print('  No. axis missed, pos y_OC, 20 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]>0]>20])  ))
+        #print('  No. axis missed, pos y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]>0]>5]) / len(array_OM[:,1][array_OC[:,1]>0]) ))  
+        print('  No. axis missed, neg y_OC, 0 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<0])  ))
+        print('  No. axis missed, neg y_OC, 5 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) ))
+        print('  No. axis missed, neg y_OC, 8 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-8]) ))
+        print('  No. axis missed, neg y_OC, 10 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-10]) ))
+        print('  No. axis missed, neg y_OC, 12 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-12]) ))
+        print('  No. axis missed, neg y_OC, 20 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-20]) ))
+        #print('  No. axis missed, neg y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) / len(array_OM[:,1][array_OC[:,1]<0]) ))      
+        
+        # Special selected events in plots:
+        #selection = array_OM[:,1]>1000  # [array_OM[:,1]>5]
+        #selection = (array_OP[:,0]<300) & (array_OP[:,0]>100) # peculiar photon positions for forward scattering
+        selection = np.full_like(array_OM[:,1], False, dtype = bool)      
+        for i in range(0,len(array_OM[:,1])):
+            if(array_OC[:,1][i]>0 and array_OM[:,1][i]>5):
+                selection[i] = True
+            if(array_OC[:,1][i]<0 and array_OM[:,1][i]<-5):
+                selection[i] = True
+        
+        plt.figure()
+        plt.title(events)
+        plt.scatter(array_OM[:,2], array_OM[:,1])
+        plt.scatter(array_OM[:,2][selection], array_OM[:,1][selection], marker='*', color='tab:red', label = 'Missed beam axis')
+        plt.xlabel("z / mm")
+        plt.ylabel("y / mm")
+        plt.legend()
+        plt.ylim(-70,800)
+        plt.xlim(-170,170)
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_Mpoints_ZY')
+        
+        plt.figure()
+        plt.title(events)
+        plt.scatter(array_OA[:,0], array_OA[:,1], label= 'Electron')
+        plt.scatter(array_OP[:,0], array_OP[:,1], label= 'Photon')
+        plt.scatter(array_OC[:,0], array_OC[:,1], label= 'Cone axis intersection')
+        plt.scatter(array_OA[:,0][selection], array_OA[:,1][selection], marker='*', color='tab:red', label = str( np.sum([selection]) ) + ' missed')
+        plt.scatter(array_OP[:,0][selection], array_OP[:,1][selection], marker='*', color='tab:red')
+        plt.scatter(array_OC[:,0][selection], array_OC[:,1][selection], marker='*', color='tab:red')
+        plt.xlabel("x / mm")
+        plt.ylabel("y / mm")
+        plt.ylim(-130,130)
+        plt.xlim(-20,435)
+        plt.legend()
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-y')
+        
+        plt.figure()
+        plt.title(events)
+        plt.scatter(array_OA[:,0], array_OA[:,2], label= 'Electron')
+        plt.scatter(array_OP[:,0], array_OP[:,2], label= 'Photon')
+        plt.scatter(array_OC[:,0], array_OC[:,2], label= 'Cone axis intersection')
+        plt.scatter(array_OA[:,0][selection], array_OA[:,2][selection], marker='*', color='tab:red', label = str( np.sum([selection]) ) + ' missed')
+        plt.scatter(array_OC[:,0][selection], array_OC[:,2][selection], marker='*', color='tab:red')
+        plt.scatter(array_OP[:,0][selection], array_OP[:,2][selection], marker='*', color='tab:red')
+        plt.xlabel("x / mm")
+        plt.ylabel("z / mm")
+        plt.ylim(-165,165)
+        plt.xlim(-20,435)
+        plt.legend()
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-z')
+        
+        plt.figure()
+        plt.title(events)
+        plt.scatter(array_OM[:,2], compton_angle)
+        plt.scatter(array_OC[:,2][selection], np.asarray(compton_angle)[selection], marker='*', color='tab:red')
+        plt.xlabel("z of cone axis intersection / mm")
+        plt.ylabel("Compton cone angle / degree")
+        plt.ylim(-5,95)
+        plt.xlim(-170,170)
+        plt.legend()
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle')
+            
+        # Plot as heat map
+        xy = np.vstack([array_OM[:,2],compton_angle])
+        z = gaussian_kde(xy)(xy)
+        x2 = np.asarray(array_OM[:,2])
+        y2 = np.asarray(compton_angle)
+        idx = z.argsort()
+        x3, y3, z = x2[idx], y2[idx], z[idx]
+        plt.figure()
+        plt.title(events)
+        plt.scatter(x3, y3, c=z, marker='.', s=50)
+        #plt.scatter(array_OC[:,2][selection], np.asarray(compton_angle)[selection], marker='*', color='tab:red')
+        plt.xlabel("z of cone axis intersection / mm")
+        plt.ylabel("Compton cone angle / degree")
+        plt.ylim(-5,95)
+        plt.xlim(-170,170)
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle_Heat')
+                           
     def export_predictions_root(self, root_name):
         # get the predictions and true values
         y_pred = self.predict(self.data.test_x)
