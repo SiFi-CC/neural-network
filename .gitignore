@@ -1,6 +1,6 @@
 # Ignore the following files
 ModelsTrained
-
+sificc_lib/__pycache__/
 
 *.npz
 *.csv
