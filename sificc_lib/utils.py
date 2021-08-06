@@ -113,7 +113,6 @@ class utils:
                                                              simulation.absorber.thickness_y, 
                                                              simulation.absorber.thickness_z))
 
-        
     def calculate_normalizations(simulation, only_valid = True):
         l_entries = []
         l_energies = []
