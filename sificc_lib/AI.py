@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from tensorflow import keras
 from tensorflow.keras import backend as K
 import tensorflow as tf
-from sificc_lib import utils
+from sificc_lib import utils, Simulation, root_files
 import pickle as pkl
 import datetime as dt
 from scipy.stats import gaussian_kde
@@ -181,9 +181,9 @@ class AI:
                                'e_cluster': self._e_cluster_loss,
                                'p_cluster': self._p_cluster_loss,
                                'pos_x': self._pos_loss,
-                               'pos_y': self._pos_loss_y,
+                               'pos_y': self._pos_loss,
                                'pos_z': self._pos_loss,
-                               'energy': self._energy_loss, 
+                               'energy': self._energy_loss_penalty, 
                            }, 
                            metrics = {
                                'type' : [self._type_accuracy, self._type_tp_rate],
@@ -283,6 +283,7 @@ class AI:
         return e_loss + p_loss
     
     def _pos_loss_x(self, y_true, y_pred):
+        # Apply to model compilation, if required
         
         event_filter = y_true[:,0] # ∈ n  
         e_pos_true = K.reshape(y_true[:,2],(-1,1)) # ∈ nx1    # 
@@ -444,16 +445,17 @@ class AI:
         p_loss = keras.losses.logcosh(p_enrg_true, p_enrg_pred) # ∈ n
         p_loss = event_filter * p_loss
         
-        # New implementation with only prediction value for constraint
         # primary energy = pred. e energy + pred. photon energy
         total_energy = e_enrg_pred + p_enrg_pred
         
+        # Electron energy threshold set from prediction value: Real E max on 3 position
         me = constants.m_e
         c = constants.c
         e_el = constants.e
         e_max_energy_pred = total_energy / ( 1 + (me*c**2*10**(-6)) / (e_el*2*total_energy) ) 
         
-        #thresh   = K.reshape(y_true[:,3],(-1,1))    # Real E max on 3 position
+        # Electron energy threshold set from MC truth value: Real E max on 3 position
+        #thresh   = K.reshape(y_true[:,3],(-1,1))    
         strength = 0.0001  # 0.0001, 
         
         if self.penalty   == 'emax_linear':
@@ -470,7 +472,6 @@ class AI:
         e_energy_penalty = event_filter * e_energy_penalty    
         
         return e_loss + p_loss + e_energy_penalty
-    
     
     def _energy_loss(self, y_true, y_pred):
         # y_true is [t, e_enrg, p_enrg] 
@@ -489,28 +490,7 @@ class AI:
         p_loss = keras.losses.logcosh(p_enrg_true, p_enrg_pred) # ∈ n
         p_loss = event_filter * p_loss
         
-        if self.penalty == 'cone_quadratic':
-            
-            #K.print_tensor(e_enrg_true, message='y_pred El energy')
-            cone_penalty = self.penaltyConeDistance(y_true, y_pred)
-            print("cone", cone_penalty)
-            
-            return e_loss + p_loss + cone_penalty
-        
         return e_loss + p_loss
-    
-    def penaltyConeDistance(self, y_true, y_pred):
-        
-        # Calculation of the penalty term
-        # Penalty is added to the loss terms (Energy, Position X Y Z) if the reconstructed cone is
-        #  too far away from soure axis
-        
-        event_filter = y_true[:,0] # ∈ n
-        
-        penalty_cone = 0
-        
-        return penalty_cone
-   
     
     def predict(self, data, denormalize=False, verbose=0):
         pred = self.model.predict(data)
@@ -795,8 +775,7 @@ class AI:
 
         y_emax = y_true[:,-1]   # Choose max electron energy real, last element of target list
         y_true = y_true[:,:-3]   # same length as others, cut away e and p cluster and e max
-        
-                
+             
         # Recalculation to primary energy
         me = constants.m_e
         c = constants.c
@@ -863,203 +842,22 @@ class AI:
             plot_hist(y_prim,  1,  'primary energy', bin_width)
             plot_hist(data_diff,  1,  'difference e- energy real - predicted', bin_width)
     
-    '''
-    def evaluationComptonConesOld(self, mask = 'type', events='True'):
-        # To be deleted when not needed anymore for cross checks
+    def get_volume_measures(self):
         
-        y_pred = self.predict(self.data.test_x)
-        y_true = self.data.test_row_y
-        y_reco = self.data.reco_test
-
-        l_matches_all  = np.array(self._find_matches(y_true, y_pred, mask=None, keep_length = True)).astype(bool)   
-        l_matches_type = np.array(self._find_matches(y_true, y_pred, mask= [1] + ([0] * 8), keep_length = True)).astype(bool)
-
-        if mask == 'type':
-            y_pred = y_pred[l_matches_type]
-            y_true = y_true[l_matches_type]
-        elif mask == 'all':
-            y_pred = y_pred[l_matches_all]
-            y_true = y_true[l_matches_all]
-
-        y_pred = self.data._denormalize_targets(y_pred)
-        y_true = self.data._denormalize_targets(y_true)
-
-        e_energy = y_true[:,1]
-        p_energy = y_true[:,2]
-        me = 0.510999
-        arc_base = np.abs(1 - me *(1/p_energy - 1/(e_energy + p_energy))) # Argument for arccos
-        valid_arc = arc_base <= 1                                         # arccos(x), x goes from -1 to 1
-
-        print("Check argument of arccos: Invalid events", np.sum(np.invert(valid_arc)), " from ", len(valid_arc))
-        print("True: Invalid events", np.sum(np.invert(valid_arc)), " from ", len(valid_arc))
+        simulation = Simulation(root_files.PZ_ENOUGH)
         
-        y_pred = y_pred[valid_arc]
-        y_true = y_true[valid_arc]
-
-        def reconstructionCone(y, plotTitle):
-            
-            compton_angle, phi_angle = [], []
-            array_y_OM, array_y_OC = np.array([]), np.array([])
-            array_z_OM, array_z_OC = np.array([]), np.array([])
-            countp1,countp2,countp3,countn1,countn2,countn3, count_theta=0,0,0,0,0,0,0
-            for i in range(0, len(y)): 
-                
-                # Compton angle
-                e_energy = y[:,1][i]
-                p_energy = y[:,2][i]
-
-                theta = np.arccos(1.0 - me *(1.0/p_energy - 1.0/( e_energy + p_energy )))
-                theta = np.rad2deg(theta)
-                                
-                # Angle selection (~ 3% back-scattering)
-                if theta >= 90:
-                    # Case B.2: Backward scattering, electron in absorber
-                    theta = 180 - theta
-                    count_theta+=1
-                else:
-                    theta = theta
-                    # Case B.1: Forward scattering, electron in scatterer
-                                
-                # Vector pointing to interaction point of electron (apex of cone)
-                x_OA = y[:,3][i]
-                y_OA = y[:,4][i]
-                z_OA = y[:,5][i]
-
-                # Vector pointing to interaction point of photon
-                x_OP = y[:,6][i]
-                y_OP = y[:,7][i]
-                z_OP = y[:,8][i]
-
-                # Vector from origin to point of intersection of cone axis with x=0-plane
-                x_OC = x_OA - x_OA * (x_OA - x_OP) / (x_OA - x_OP)    #np.asarray([0.0]*len(x_OA))
-                y_OC = y_OA - x_OA * (y_OA - y_OP) / (x_OA - x_OP)
-                z_OC = z_OA - x_OA * (z_OA - z_OP) / (x_OA - x_OP)
-                
-                if y_OC >= 0:
-                    compton_angle.append(theta)
-                    # Vector pointing from apex of cone along cone axis to intersection with x=0 plane
-                    # From point A to point C
-                    # Plane at x=0 (parallel to the surface of the Compton camera), beam axis is along z direction 
-                    x_AC = x_OC - x_OA
-                    y_AC = y_OC - y_OA
-                    z_AC = z_OC - z_OA
-
-                    # Angle between cone axis and x axis, from radians to degree
-                    distance_PA = np.sqrt( (x_OP - x_OA)**2 + (y_OP - y_OA)**2 + (z_OP - z_OA)**2 )  #######
-                    phi = np.rad2deg( np.arcsin( np.abs(y_OA - y_OP) /  distance_PA ) )
-                    # Distance between cone apex point and intersection point with x=0 plane, at z=z_OC,
-                    distance_Aaxis = np.sqrt( (z_OA - z_OC)**2 + x_OA**2)    # Probably wrong assumption
-                    phi_angle.append(phi)
-
-                    # Cases: 
-                    # 1. Positive y_OC
-                    # 2. Negative y_OC
-                    # A: Negative slope cone axis + theta < phi
-                    # B: Negative slope cone axis + theta > phi 
-                    # C: Positive slope cone axis
-                    
-                    if (y_OC >= 0):
-                        # A: Negative slope cone axis
-                        if (theta <= phi) and (y_OA >= y_OP):
-                            a = +1
-                            b = -1
-                            c = +1
-                            countp1+=1
-                        elif (theta >= phi) and (y_OA >= y_OP):
-                            a = -1
-                            b = +1
-                            c = -1
-                            countp2+=1
-                        else:
-                            # Cases y_OA <= y_OP
-                            a = +1
-                            b = +1
-                            c = -1
-                            countp3+=1
-                    if (y_OC <= 0):
-                        if (theta <= phi) and (y_OA <= y_OP):
-                            a = +1
-                            b = -1
-                            c = -1
-                            countn1+=1
-                        elif (theta >= phi) and (y_OA <= y_OP):
-                            a = -1
-                            b = +1
-                            c = +1
-                            countn2+=1
-                        else:
-                            # Cases y_OA >= y_OP
-                            a = +1
-                            b = +1
-                            c = +1
-                            countn3+=1
-
-                    y_diff = distance_Aaxis * np.tan( np.deg2rad( a*phi + b*theta ) )
-                    # Distance from source axis (z axis) along y (z constant, x = 0) to the surface of the Compton cone
-
-                    y_OM   = y_OA + c*y_diff
-                    z_OM   = z_OC
-
-                    array_y_OM = np.append(array_y_OM, y_OM)
-                    array_z_OM = np.append(array_z_OM, z_OM)
-                    array_y_OC = np.append(array_y_OC, y_OC)
-                    array_z_OC = np.append(array_z_OC, z_OC)
-                
-            compton_angle=np.asarray(compton_angle)
-            phi_angle=np.asarray(phi_angle)
-            print("Y OM larger y OC ", np.sum([array_y_OM>array_y_OC])) 
-            
-            print("Which hits yom larger y OC: yOM,yOC", array_y_OM[array_y_OM>array_y_OC], array_y_OC[array_y_OM>array_y_OC])
-            print("Which hits yom larger y OC: theta,phi", compton_angle[array_y_OM>array_y_OC], phi_angle[array_y_OM>array_y_OC])
-            print("\n Cone missed axis ,positive yoC  ", np.sum([array_y_OM[array_y_OC>0]>0]))
-            print("Cone missed axis 5 deviation, post ", np.sum([array_y_OM[array_y_OC>0]>5]))
-            
-            print("Y OC", array_y_OC)
-            print("Y OM", array_y_OM)
-            print("Y OM", array_y_OM[10:30])
-            
-            print("Cases: ", countp1, countp2, countp3, countn1, countn2, countn3, count_theta)
-            
-            # Accepted cones which miss axis within 5 mm (2.5 mm width of proton beam)
-            plt.figure()
-            plt.title('Cone axis interception with x=0 plane')
-            plt.scatter(array_z_OC, array_y_OC)
-            plt.scatter(array_z_OC[array_y_OM>array_y_OC], array_y_OC[array_y_OM>array_y_OC], color = 'tab:orange')
-            plt.xlabel("z")
-            plt.ylabel("y")
-            plt.show()
-            
-            plt.figure()
-            plt.scatter(array_z_OM, array_y_OM)
-            plt.scatter(array_z_OM[array_y_OM>array_y_OC], array_y_OM[array_y_OM>array_y_OC], color = 'tab:orange')
-            plt.xlabel("z")
-            plt.ylabel("y")
-            plt.show()
-            
-            plt.figure()
-            plt.scatter(array_z_OM, compton_angle)
-            plt.xlabel("z (M)")
-            plt.ylabel("Scatter angle")
-            plt.show()
-            
-            plt.figure()
-            plt.scatter(array_z_OC, compton_angle)
-            plt.xlabel("z (C)")
-            plt.ylabel("Compton cone angle")
-            plt.show()
-            
-            plt.figure()
-            plt.scatter(array_z_OC, phi_angle)
-            plt.xlabel("z (C)")
-            plt.ylabel("Cone axis to x axis angle")
-            plt.show()
-            
-        if events=="True":
-            reconstructionCone(y_true, 'True')    
-        else:
-            reconstructionCone(y_pred, 'Prediction')
-        '''
-            
+        volumes = {}
+        volumes['min_x_scat'] = simulation.scatterer.position.x - simulation.scatterer.thickness_x/2
+        volumes['max_x_scat'] = simulation.scatterer.position.x + simulation.scatterer.thickness_x/2
+        volumes['min_x_abs'] = simulation.absorber.position.x - simulation.absorber.thickness_x/2
+        volumes['max_x_abs'] = simulation.absorber.position.x + simulation.absorber.thickness_x/2
+        volumes['min_y'] = simulation.scatterer.position.y - simulation.scatterer.thickness_y/2
+        volumes['max_y'] = simulation.scatterer.position.y + simulation.scatterer.thickness_y/2
+        volumes['min_z'] = simulation.scatterer.position.z - simulation.scatterer.thickness_z/2
+        volumes['max_z'] = simulation.scatterer.position.z + simulation.scatterer.thickness_z/2
+        
+        return volumes
+        
     def isInsideVolume(self, mask = 'type', data = 'prediction'):
         y_pred = self.predict(self.data.test_x)
         y_true = self.data.test_row_y
@@ -1082,29 +880,43 @@ class AI:
         else:
             y = y_true
         
-        eIsInsideScat = [ (193.5 < y[:,3]) & (y[:,3] < 206.5) & ( -50.< y[:,4]) & (y[:,4] < 50.) & (-49.4 < y[:,5]) & (y[:,5] < 49.4) ]
-        eIsInsideAbs  = [ (380.5< y[:,3]) & (y[:,3] < 419.5) & ( -50.< y[:,4]) & (y[:,4] < 50.) & (-49.4 < y[:,5]) & (y[:,5] < 49.4) ]
-        pIsInsideScat = [ (193.5 < y[:,6]) & (y[:,6] < 206.5) & ( -50.< y[:,7]) & (y[:,7] < 50.) & (-49.4 < y[:,8]) & (y[:,8] < 49.4) ]
-        pIsInsideAbs  = [ (380.5< y[:,6]) & (y[:,6] < 419.5) & ( -50.< y[:,7]) & (y[:,7] < 50.) & (-49.4 < y[:,8]) & (y[:,8] < 49.4) ]
+        volumes = self.get_volume_measures()
+        
+        print("min max z ", volumes['min_z'], volumes['max_z'])
+        eIsInsideScat = [(volumes['min_x_scat'] < y[:,3]) & (y[:,3] < volumes['max_x_scat']) 
+                         & (volumes['min_y']< y[:,4]) & (y[:,4] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,5]) & (y[:,5] < volumes['max_z'])]
+        eIsInsideAbs  = [(volumes['min_x_abs']< y[:,3]) & (y[:,3] < volumes['max_x_abs']) 
+                         & ( volumes['min_y']< y[:,4]) & (y[:,4] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,5]) & (y[:,5] < volumes['max_z'])]
+        pIsInsideScat = [(volumes['min_x_scat'] < y[:,6]) & (y[:,6] < volumes['max_x_scat']) 
+                         & ( volumes['min_y']< y[:,7]) & (y[:,7] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,8]) & (y[:,8] < volumes['max_z'])]
+        pIsInsideAbs  = [(volumes['min_x_abs']< y[:,6]) & (y[:,6] < volumes['max_x_abs']) 
+                         & ( volumes['min_y']< y[:,7]) & (y[:,7] < volumes['max_y']) 
+                         & (volumes['min_z'] < y[:,8]) & (y[:,8] < volumes['max_z'])]
         
         eIsNotInsideScat = np.invert(eIsInsideScat)
         eIsNotInsideAbs  = np.invert(eIsInsideAbs)
-        
         pIsNotInsideScat = np.invert(pIsInsideScat)
         pIsNotInsideAbs  = np.invert(pIsInsideAbs)
         
         # Checking single directions for photon and electron 
-        pIsInsideScatX = [(193.5 < y[:,6]) & (y[:,6] < 206.5)]
-        pIsInsideAbsX = [(380.5 < y[:,6]) & (y[:,6] < 419.5)]
-        pIsInsideScatY = [(-50. < y[:,7]) & (y[:,7] < 50.)]
-        pIsInsideScatZ = [(-49.4 <= y[:,8]) & (y[:,8] <= 49.4)]
+        pIsInsideScatX = (volumes['min_x_scat'] < y[:,6]) & (y[:,6] < volumes['max_x_scat'])
+        pIsInsideAbsX = (volumes['min_x_abs'] < y[:,6]) & (y[:,6] < volumes['max_x_abs'])
+        pIsInsideScatY = (volumes['min_y'] < y[:,7]) & (y[:,7] < volumes['max_y'])
+        pIsInsideScatZ = (volumes['min_z'] <= y[:,8]) & (y[:,8] <= volumes['max_z'])
         
-        eIsInsideScatX = [(193.5 < y[:,3]) & (y[:,3] < 206.5)]
-        eIsInsideAbsX = [(380.5 < y[:,3]) & (y[:,3] < 419.5)]
-        eIsInsideScatY = [(-50. < y[:,4]) & (y[:,4] < 50.)]
-        eIsInsideScatZ = [(-49.4 <= y[:,5]) & (y[:,5] <= 49.4)]
+        eIsInsideScatX = (volumes['min_x_scat'] < y[:,3]) & (y[:,3] < volumes['max_x_scat'])
+        eIsInsideAbsX = (volumes['min_x_abs'] < y[:,3]) & (y[:,3] < volumes['max_x_abs'])
+        eIsInsideScatY = (volumes['min_y'] < y[:,4]) & (y[:,4] < volumes['max_y'])
+        eIsInsideScatZ = (volumes['min_z'] <= y[:,5]) & (y[:,5] <= volumes['max_z'])
         
-        #print("Wrong cases true values ", y[:,3][eIsNotInsideScat & eIsNotInsideAbs],y[:,4][eIsNotInsideScat & eIsNotInsideAbs],y[:,5][eIsNotInsideScat & eIsNotInsideAbs])
+        
+        
+        print(pIsInsideScatZ)
+        print(y[:,8][np.invert(pIsInsideScatZ)])
+        print(y[:,5][np.invert(eIsInsideScatZ)])
         
         print("{:10d} Events (matched)".format(len(y)))
         print("\n{:10d} Events e predicted inside scatterer".format(np.sum(eIsInsideScat)))
@@ -1112,19 +924,21 @@ class AI:
         print("{:10d} Events e pred. outside of volumes".format(np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
         print("{:8.4f} Percent of outside pred. from all (matched) events".format(100*np.sum([eIsNotInsideScat & eIsNotInsideAbs])/len(y)))
         
-        print('\n    {:10d} ({:8.4f} %) x missed, e-'.format(np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)]), 100*np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
-        print('    {:10d} ({:8.4f} %) y missed, e-'.format(np.sum([np.invert(eIsInsideScatY)]), 100*np.sum([np.invert(eIsInsideScatY)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
-        print('    {:10d} ({:8.4f} %) z missed, e-'.format(np.sum(np.invert(eIsInsideScatZ)), 100*np.sum(np.invert(eIsInsideScatZ))/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
+        print('\n{:10d} ({:8.4f} %) x missed, e-'.format(np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)]), 100*np.sum([np.invert(eIsInsideScatX) & np.invert(eIsInsideAbsX)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) y missed, e-'.format(np.sum([np.invert(eIsInsideScatY)]), 100*np.sum([np.invert(eIsInsideScatY)])/np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) z missed, e-'.format(np.sum(np.invert(eIsInsideScatZ)), 
+                                                       100*np.sum(np.invert(eIsInsideScatZ))
+                                                       /np.sum([eIsNotInsideScat & eIsNotInsideAbs])))
         
         print("\n{:10d} Events ph predicted inside scatterer,".format(np.sum(pIsInsideScat)))
         print("{:10d} Events ph predicted inside absorber".format(np.sum(pIsInsideAbs)))
         print("{:10d} Events ph outside of volumes".format(np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
         print("{:8.4f} Percent of hits from all (matched) events".format(100*np.sum([pIsNotInsideScat & pIsNotInsideAbs]) / len(y)))
-        
-        print('\n    {:10d} ({:8.4f} %) x missed, photon'.format(np.sum([np.invert(pIsInsideScatX) & np.invert(pIsInsideAbsX)]), 100*np.sum([np.invert(pIsInsideScatX) & np.invert(pIsInsideAbsX)])/np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
-        print('    {:10d} ({:8.4f} %) y missed, photon'.format(np.sum([np.invert(pIsInsideScatY)]), 100*np.sum([np.invert(pIsInsideScatY)])/np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
-        print('    {:10d} ({:8.4f} %) z missed, photon'.format(np.sum([np.invert(pIsInsideScatZ)]), 100*np.sum(np.invert(pIsInsideScatZ) )/np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
-        
+        print('\n{:10d} ({:8.4f} %) x missed, photon'.format(np.sum([np.invert(pIsInsideScatX) & np.invert(pIsInsideAbsX)]), 100*np.sum([np.invert(pIsInsideScatX) & np.invert(pIsInsideAbsX)])/np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) y missed, photon'.format(np.sum([np.invert(pIsInsideScatY)]), 100*np.sum([np.invert(pIsInsideScatY)])/np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
+        print('{:10d} ({:8.4f} %) z missed, photon'.format(np.sum([np.invert(pIsInsideScatZ)]), 
+                                                           100*np.sum(np.invert(pIsInsideScatZ) )
+                                                           /np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
         
     def evaluationComptonCones(self, mask = 'type', events='True', save = False):
         
@@ -1195,7 +1009,8 @@ class AI:
             # Vector from origin to point of intersection of cone axis with x=0-plane
             vector_OC = vector_OA - vector_OA[0] * ( vector_OA - vector_OP ) / ( vector_OA[0] - vector_OP[0] )
             
-            if vector_OC[1] <= 0 and theta <= 90: # Apply selection    vector_OC[1] >= 0 and 
+            # Apply selection    vector_OC[1] >= 0 and 
+            if vector_OC[1] <= 0 and theta <= 90: 
 
                  # Angle selection
                 if theta >= 90:
@@ -1231,7 +1046,7 @@ class AI:
                 sin = np.sin(np.deg2rad(theta))
                 Rot = np.array([ [ nx**2*( 1 - cos ) + cos,   0 - nz*sin ,   nx*nz*( 1 - cos ) + 0   ], 
                                [   0 + nz*sin             ,   0 + cos    ,   0 - nx*sin              ], 
-                               [   nz*nx*( 1 - cos ) -  0 ,   0 + nx*sin ,   nz**2*( 1 - cos ) + cos ] ])
+                               [   nz*nx*( 1 - cos ) -  0 ,   0 + nx*sin ,   nz**2*( 1 - cos ) + cos ]])
 
                 vector_AC_rot = Rot.dot(vector_AC)
 
@@ -1262,25 +1077,22 @@ class AI:
         print('  No. axis missed, neg y_OC, 20 tolerance: {:8.5f}'.format( np.sum([array_OM[:,1][array_OC[:,1]<0]<-20]) ))
         #print('  No. axis missed, neg y_OC, %: {:8.5f}          '.format( 100*np.sum([array_OM[:,1][array_OC[:,1]<0]<-5]) / len(array_OM[:,1][array_OC[:,1]<0]) ))      
         
-        #print("Outliers in MCtruth", array_OM[array_OM[:,1]>1000], array_OA[array_OM[:,1]>1000])
-        
         # Special selected events in plots:
         #selection = array_OM[:,1]>1000  # [array_OM[:,1]>5]
-        
-        selection = (array_OP[:,0]<300) & (array_OP[:,0]>100) # peculiar photon positions for forward scattering
-        #selection = np.full_like(array_OM[:,1], False, dtype = bool)      
-        #for i in range(0,len(array_OM[:,1])):
-        #    if(array_OC[:,1][i]>0 and array_OM[:,1][i]>5):
-        #        selection[i] = True
-        #    if(array_OC[:,1][i]<0 and array_OM[:,1][i]<-5):
-        #        selection[i] = True
+        #selection = (array_OP[:,0]<300) & (array_OP[:,0]>100) # peculiar photon positions for forward scattering
+        selection = np.full_like(array_OM[:,1], False, dtype = bool)      
+        for i in range(0,len(array_OM[:,1])):
+            if(array_OC[:,1][i]>0 and array_OM[:,1][i]>5):
+                selection[i] = True
+            if(array_OC[:,1][i]<0 and array_OM[:,1][i]<-5):
+                selection[i] = True
         
         plt.figure()
         plt.title(events)
         plt.scatter(array_OM[:,2], array_OM[:,1])
         plt.scatter(array_OM[:,2][selection], array_OM[:,1][selection], marker='*', color='tab:red', label = 'Missed beam axis')
-        plt.xlabel("z")
-        plt.ylabel("y")
+        plt.xlabel("z / mm")
+        plt.ylabel("y / mm")
         plt.legend()
         plt.ylim(-70,800)
         plt.xlim(-170,170)
@@ -1294,8 +1106,8 @@ class AI:
         plt.scatter(array_OA[:,0][selection], array_OA[:,1][selection], marker='*', color='tab:red', label = str( np.sum([selection]) ) + ' missed')
         plt.scatter(array_OP[:,0][selection], array_OP[:,1][selection], marker='*', color='tab:red')
         plt.scatter(array_OC[:,0][selection], array_OC[:,1][selection], marker='*', color='tab:red')
-        plt.xlabel("x")
-        plt.ylabel("y")
+        plt.xlabel("x / mm")
+        plt.ylabel("y / mm")
         plt.ylim(-130,130)
         plt.xlim(-20,435)
         plt.legend()
@@ -1309,8 +1121,8 @@ class AI:
         plt.scatter(array_OA[:,0][selection], array_OA[:,2][selection], marker='*', color='tab:red', label = str( np.sum([selection]) ) + ' missed')
         plt.scatter(array_OC[:,0][selection], array_OC[:,2][selection], marker='*', color='tab:red')
         plt.scatter(array_OP[:,0][selection], array_OP[:,2][selection], marker='*', color='tab:red')
-        plt.xlabel("x")
-        plt.ylabel("z")
+        plt.xlabel("x / mm")
+        plt.ylabel("z / mm")
         plt.ylim(-165,165)
         plt.xlim(-20,435)
         plt.legend()
@@ -1320,14 +1132,14 @@ class AI:
         plt.title(events)
         plt.scatter(array_OM[:,2], compton_angle)
         plt.scatter(array_OC[:,2][selection], np.asarray(compton_angle)[selection], marker='*', color='tab:red')
-        plt.xlabel("z of cone axis intersection")
-        plt.ylabel("Compton cone angle")
+        plt.xlabel("z of cone axis intersection / mm")
+        plt.ylabel("Compton cone angle / degree")
         plt.ylim(-5,95)
         plt.xlim(-170,170)
         plt.legend()
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle')
+            
         # Plot as heat map
-        
         xy = np.vstack([array_OM[:,2],compton_angle])
         z = gaussian_kde(xy)(xy)
         x2 = np.asarray(array_OM[:,2])
@@ -1338,27 +1150,12 @@ class AI:
         plt.title(events)
         plt.scatter(x3, y3, c=z, marker='.', s=50)
         #plt.scatter(array_OC[:,2][selection], np.asarray(compton_angle)[selection], marker='*', color='tab:red')
-        plt.xlabel("z of cone axis intersection")
-        plt.ylabel("Compton cone angle")
+        plt.xlabel("z of cone axis intersection / mm")
+        plt.ylabel("Compton cone angle / degree")
         plt.ylim(-5,95)
         plt.xlim(-170,170)
         if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle_Heat')
-        
-        '''
-        cone_open_plane = array_OC[:,1] - array_OM[:,1]
-        plt.figure()
-        plt.hist(cone_open_plane[cone_open_plane<3000], bins=1000)
-        plt.xlim(-1000,200)
-        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Hist_yOC-yOM_ConeOpening')
-
-        plt.figure()
-        plt.hist(compton_angle, bins=70)
-        plt.xlabel("Cone angle")
-        plt.ylabel("Counts")
-        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_Hist_ConeAngle')
-        plt.show()
-        '''
-
+  
     def plot_diff(self, mode='type-match', add_reco=True, focus=False):
         y_pred = self.predict(self.data.test_x)
         y_true = self.data.test_row_y
