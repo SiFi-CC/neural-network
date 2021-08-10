@@ -3,11 +3,13 @@ import matplotlib.pyplot as plt
 from tensorflow import keras
 from tensorflow.keras import backend as K
 import tensorflow as tf
-from sificc_lib import utils, Simulation, root_files
+from sificc_lib import Utils_new, Simulation_new, root_files
 import pickle as pkl
 import datetime as dt
 from scipy.stats import gaussian_kde
 import uproot
+import os
+
 class MyCallback(keras.callbacks.Callback):
     def __init__(self, ai, file_name=None):
         self.ai = ai
@@ -65,6 +67,9 @@ class AI:
         self.count_read = 0
         
         self.savefigpath = ''
+        if self.savefigpath and not os.path.exists(self.savefigpath):
+            os.makedirs(self.savefigpath)
+    
         self.callback = MyCallback(self, model_name)
         
     def train(self,*, epochs=100, verbose=0, shuffle=True, 
@@ -598,7 +603,7 @@ class AI:
             all_reco_matches = np.array(self._find_matches(y_true, y_reco, keep_length = True)).astype(bool)
             l_matches = (l_matches * np.invert(all_matches)).astype(bool)
             l_reco_matches = (l_reco_matches * np.invert(all_reco_matches)).astype(bool)
-
+        
         y_pred = self.data._denormalize_targets(y_pred)
         y_true = self.data._denormalize_targets(y_true)
         y_reco = self.data._denormalize_targets(y_reco)
@@ -606,14 +611,13 @@ class AI:
         if mode == 'miss':
             l_matches = (np.invert(l_matches) * y_true[:,0]).astype(bool)
             l_reco_matches = (np.invert(l_reco_matches) * y_true[:,0]).astype(bool)
-            
-
+        
         diff = y_true[:,:-2] - y_pred
         reco_diff = y_true[:,:-2] - y_reco
-
+        
         diff = diff[l_matches]
         reco_diff = reco_diff[l_reco_matches]
-
+        
         #print('{:6.0f} total Compton events'.format(np.sum(y_true[:,0])))
         #print('{:6d} NN matched events'.format(np.sum(l_matches)))
         #print('{:6d} Reco matched events'.format(np.sum(l_reco_matches)))
@@ -743,7 +747,7 @@ class AI:
     def get_volume_measures(self):
         
         if self.count_read == 0:
-            simulation = Simulation(root_files.PZ_ENOUGH)
+            simulation = Simulation_new(root_files.PZ_ENOUGH)
             self.count_read += 1
             self.volumes = {}
             self.volumes['min_x_scat'] = simulation.scatterer.position.x - simulation.scatterer.thickness_x/2
@@ -762,8 +766,14 @@ class AI:
         y_pred = self.predict(self.data.test_x)
         y_true = self.data.test_row_y
         
-        l_matches_all  = np.array(self._find_matches(y_true, y_pred, mask = None, keep_length = True)).astype(bool)   
-        l_matches_type = np.array(self._find_matches(y_true, y_pred, mask = [1] + ([0] * 8), keep_length = True)).astype(bool)
+        l_matches_all  = np.array(self._find_matches(y_true, 
+                                                     y_pred, 
+                                                     mask = None, 
+                                                     keep_length = True)).astype(bool)   
+        l_matches_type = np.array(self._find_matches(y_true, 
+                                                     y_pred, 
+                                                     mask = [1] + ([0] * 8), 
+                                                     keep_length = True)).astype(bool)
         
         if mask == 'type':
             y_pred = y_pred[l_matches_type]
@@ -835,7 +845,6 @@ class AI:
         print('{:10d} ({:8.4f} %) z missed, photon'.format(np.sum([np.invert(pIsInsideScatZ)]), 
                                                            100*np.sum(np.invert(pIsInsideScatZ) )
                                                            /np.sum([pIsNotInsideScat & pIsNotInsideAbs])))
-    
     
     def _ep_is_in_scatterer(self, y, ep):  
         # Used in events_prediction_analysis
@@ -913,7 +922,8 @@ class AI:
         return number_cluster_absorber, number_cluster_scatterer, number_clusters
      
     def events_prediction_analysis(self, plots = 'all-events', save = False):
-        """events_prediction_analysis evaluates performance of predictions for different event types with respect to the energy prediction and the position prediction, 
+        """events_prediction_analysis evaluates performance of predictions for 
+        different event types with respect to the energy prediction and the position prediction, 
         for all events, events with diff. cluster numbers, clusters in scatterer, e or p in scatterer
         
         Keyword arguments:
@@ -1139,7 +1149,7 @@ class AI:
             plt.ylim(-0.2,17.7)
             plt.xlim(-0.2,15)
             plt.legend()
-            if save == True: plt.savefig(self.savefigpath + '_TrueFalsePredMatch.png')
+            if save == True: plt.savefig(self.savefigpath + '_TrueFalsePredMatch.pdf')
             
             def xy_scatter_heat(deposited_energy, sum_energy_true):
                 xy = np.vstack([deposited_energy,sum_energy_true])
@@ -1163,7 +1173,7 @@ class AI:
             plt.axis('scaled')
             plt.ylim(-0.2,17.7)
             plt.xlim(-0.2,15)
-            if save == True: plt.savefig(self.savefigpath + '_True_Heat')
+            if save == True: plt.savefig(self.savefigpath + '_True_Heat.pdf')
             
             plt.figure(figsize=(5,5))
             plt.title('False pred. ' + str(len(deposited_energy_mismatch)))
@@ -1174,7 +1184,7 @@ class AI:
             plt.axis('scaled')
             plt.ylim(-0.2,17.7)
             plt.xlim(-0.2,15)
-            if save == True: plt.savefig(self.savefigpath + '_FalsePred_Heat.png')
+            if save == True: plt.savefig(self.savefigpath + '_FalsePred_Heat.pdf')
             
             plt.figure(figsize=(5,5))
             plt.title('Matched pred. '+ str(len(deposited_energy_match)))
@@ -1185,7 +1195,7 @@ class AI:
             plt.axis('scaled')
             plt.ylim(-0.2,17.7)
             plt.xlim(-0.2,15)
-            if save == True: plt.savefig(self.savefigpath + '_Matched_Heat.png')
+            if save == True: plt.savefig(self.savefigpath + '_Matched_Heat.pdf')
             plt.show()
             
             
@@ -1217,7 +1227,7 @@ class AI:
                 ax1.set_aspect('equal', adjustable='box')
                 ax1.set_ylim(-0.2,17.7)
                 ax1.set_xlim(-0.2,15)
-                if save == True: plt.savefig(self.savefigpath + 'truefalse_' + text + '.png')
+                if save == True: plt.savefig(self.savefigpath + 'truefalse_' + text + '.pdf')
                 plt.show()
                 
             plotContainedEnergy(deposited_energy_mismatch,  sum_energy_pred_mismatch,  text='Falsely pred. ')
@@ -1581,8 +1591,10 @@ class AI:
             print("{:2.8f} efficiency, {:2.8f} purity fo 1 cluster matches in scat ".format(eff_cl1_scat, pur_cl1_scat))
 
             # Evaluate model: for events with all numbers of clusters, but only 2 cluster in scatter volume
-            arr_no_cl_scat = np.array(list_no_cl_scat) # Array with events contained in scatterer    
-            cl2_scat_mask = np.where(arr_no_cl_scat==2)[0] # Mask to select event with two cluster in the scatterer
+            # Array with events contained in scatterer
+            arr_no_cl_scat = np.array(list_no_cl_scat) 
+            # Mask to select event with two cluster in the scatterer
+            cl2_scat_mask = np.where(arr_no_cl_scat==2)[0] 
             cl2scat_y_true = list(map(y_true.__getitem__, cl2_scat_mask))
             cl2scat_y_pred = list(map(y_pred.__getitem__, cl2_scat_mask))
             cl2scat_y_true = np.vstack(cl2scat_y_true)
@@ -1606,9 +1618,18 @@ class AI:
         y_pred = self.predict(self.data.test_x)
         y_true = self.data.test_row_y
         
-        l_matches_all  = np.array(self._find_matches(y_true, y_pred, mask = None, keep_length = True)).astype(bool)   
-        l_matches_type = np.array(self._find_matches(y_true, y_pred, mask = [1] + ([0] * 8), keep_length = True)).astype(bool)
-        l_matches_pos  = np.array(self._find_matches(y_true, y_pred, mask = [1,0,0,1,1,1,1,1,1], keep_length = True)).astype(bool) # Position and type
+        l_matches_all  = np.array(self._find_matches(y_true, 
+                                                     y_pred, 
+                                                     mask = None, 
+                                                     keep_length = True)).astype(bool)   
+        l_matches_type = np.array(self._find_matches(y_true, 
+                                                     y_pred, 
+                                                     mask = [1] + ([0] * 8), 
+                                                     keep_length = True)).astype(bool)
+        l_matches_pos  = np.array(self._find_matches(y_true, 
+                                                     y_pred, 
+                                                     mask = [1,0,0,1,1,1,1,1,1], 
+                                                     keep_length = True)).astype(bool)
         
         if mask == 'type':
             y_pred = y_pred[l_matches_type]
@@ -1639,7 +1660,8 @@ class AI:
         y_pred = y_pred[valid_arc]
         y_true = y_true[valid_arc]
         
-        print("Check argument of arccos: Invalid events", np.sum(np.invert(valid_arc)), " from ", len(valid_arc))
+        print("Check argument of arccos: Invalid events", 
+              np.sum(np.invert(valid_arc)), " from ", len(valid_arc))
         
         if events == "True":
             y = y_true
@@ -1750,14 +1772,41 @@ class AI:
         
         plt.figure()
         plt.title(events)
+        plt.hist(compton_angle)
+        plt.xlabel("Cone angle / degree")
+        plt.ylabel("Counts")
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_ConeHist.pdf')
+        
+        plt.figure()
+        plt.title(events)
         plt.scatter(array_OM[:,2], array_OM[:,1])
         plt.scatter(array_OM[:,2][selection], array_OM[:,1][selection], marker='*', color='tab:red', label = 'Missed beam axis')
         plt.xlabel("z / mm")
         plt.ylabel("y / mm")
         plt.legend()
+        plt.grid()
         plt.ylim(-70,800)
         plt.xlim(-170,170)
-        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_Mpoints_ZY')
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_Mpoints_ZY.pdf')
+        
+        # Plot as heat map
+        xy = np.vstack([array_OM[:,2], array_OM[:,1]])
+        z = gaussian_kde(xy)(xy)
+        x2 = np.asarray(array_OM[:,2])
+        y2 = np.asarray(array_OM[:,1])
+        idx = z.argsort()
+        x3, y3, z = x2[idx], y2[idx], z[idx]
+        plt.figure(figsize = (10,4))
+        plt.title(events)
+        plt.scatter(x3, y3, c=z, marker='.', s=50)
+        plt.xlabel("z / mm")
+        plt.ylabel("y / mm")
+        plt.legend()
+        plt.grid()
+        plt.ylim(-70,800)
+        plt.xlim(-170,170)
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_Mpoints_ZYHeat.pdf')
+        
         
         plt.figure()
         plt.title(events)
@@ -1772,7 +1821,7 @@ class AI:
         plt.ylim(-130,130)
         plt.xlim(-20,435)
         plt.legend()
-        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-y')
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-y.pdf')
         
         plt.figure()
         plt.title(events)
@@ -1787,7 +1836,7 @@ class AI:
         plt.ylim(-165,165)
         plt.xlim(-20,435)
         plt.legend()
-        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-z')
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask +'_EPCpoints_x-z.pdf')
         
         plt.figure()
         plt.title(events)
@@ -1798,7 +1847,7 @@ class AI:
         plt.ylim(-5,95)
         plt.xlim(-170,170)
         plt.legend()
-        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle')
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle.pdf')
             
         # Plot as heat map
         xy = np.vstack([array_OM[:,2],compton_angle])
@@ -1807,7 +1856,7 @@ class AI:
         y2 = np.asarray(compton_angle)
         idx = z.argsort()
         x3, y3, z = x2[idx], y2[idx], z[idx]
-        plt.figure()
+        plt.figure(figsize = (10,4))
         plt.title(events)
         plt.scatter(x3, y3, c=z, marker='.', s=50)
         #plt.scatter(array_OC[:,2][selection], np.asarray(compton_angle)[selection], marker='*', color='tab:red')
@@ -1815,7 +1864,8 @@ class AI:
         plt.ylabel("Compton cone angle / degree")
         plt.ylim(-5,95)
         plt.xlim(-170,170)
-        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle_Heat')
+        plt.colorbar()
+        if save == True: plt.savefig(self.savefigpath + 'Cone_' + events + '_' + mask + '_Z-Angle_Heat.pdf')
                            
     def export_predictions_root(self, root_name):
         # get the predictions and true values
