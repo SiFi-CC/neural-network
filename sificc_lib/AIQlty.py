@@ -7,79 +7,17 @@ from sificc_lib import utils
 import pickle as pkl
 import datetime as dt
 import uproot
-
-class MyCallback(keras.callbacks.Callback):
-    def __init__(self, ai, file_name=None):
-        self.ai = ai
-        self.file_name = file_name
+from sificc_lib import AI, MyCallback
         
-        if file_name is not None:
-            with open(self.file_name + '.e', 'w') as f_epoch:
-                f_epoch.write('')
-        
-    def on_epoch_end(self, epoch, logs=None):
-        y_pred = self.ai.predict(self.ai.data.train_x)[:,:-4]
-        y_true = self.ai.data.train_row_y
-        l_matches = self.ai._find_matches(y_true, y_pred, keep_length=False)
-        logs['eff'] = np.mean(l_matches)
-        logs['pur'] = np.sum(l_matches) / np.sum(y_pred[:,0])
-        
-        y_pred = self.ai.predict(self.ai.data.validation_x)[:,:-4]
-        y_true = self.ai.data.validation_row_y
-        l_matches = self.ai._find_matches(y_true, y_pred, keep_length=False)
-        logs['val_eff'] = np.mean(l_matches)
-        logs['val_pur'] = np.sum(l_matches) / np.sum(y_pred[:,0])
-        
-        self.ai.append_history(logs)
-        self.ai.save(self.file_name)
-        
-        if self.file_name is not None:
-            with open(self.file_name + '.e', 'a') as f_epoch:
-                now = dt.datetime.now()
-                f_epoch.write('loss:{:5.3f} eff:{:5.3f}/{:5.3f} in epoch {:3d} at {} {}\n'.format(
-                    logs['loss'], logs['eff'], logs['val_eff'], 
-                    epoch, now.date().isoformat(), now.strftime('%H:%M:%S')))
-
-        
-class AIQlty:
+class AIQlty(AI):
     def __init__(self, data_model, model_name=None):
         '''Initializing an instance of SiFi-CC Neural Network
         '''
-        self.data = data_model
-        
-        self.history = {}
-        self.model = None
-        
-        self.energy_factor_limit= .06 * 2
-        self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2
-        
-        self.weight_type = 2
-        self.weight_e_cluster = 1
-        self.weight_p_cluster = 1
-        self.weight_pos_x = 2.5
-        self.weight_pos_y = 1
-        self.weight_pos_z = 2
-        self.weight_energy = 1.5
+        super().__init__(data_model, model_name)
         self.weight_qlty = 1
+
         
-        self.callback = MyCallback(self, model_name)
-        
-    def train(self,*, epochs=100, verbose=0, shuffle=True, 
-              shuffle_clusters=False, callbacks=None):
-        '''Trains the AI for a fixed number of epoches
-        '''
-        if callbacks is None:
-            callbacks = [self.callback]
-        else:
-            callbacks.append(self.callback)
-            
-        history = self.model.fit(self.data.generate_batch(shuffle=shuffle, augment=shuffle_clusters), 
-                       epochs=epochs, steps_per_epoch=self.data.steps_per_epoch, 
-                       validation_data=(self.data.validation_x, self.data.validation_y), 
-                       verbose=verbose, callbacks = callbacks)
-        #self.extend_history(history)
-    
-    def init_model(self, conv_layers=[], classifier_layers=[], dense_layers=[],
+    def create_model(self, conv_layers=[], classifier_layers=[], dense_layers=[],
                    type_layers=[], pos_layers=[], energy_layers=[], base_l2=0, limbs_l2=0, 
                    conv_dropouts=[], activation='relu', plot_summary=True):
         if len(conv_dropouts) == 0:
@@ -219,97 +157,6 @@ class AIQlty:
                                'quality': self.weight_qlty,
                            })
     
-    def _type_loss(self, y_true, y_pred):
-        # loss ∈ n
-        return keras.losses.binary_crossentropy(y_true, y_pred)
-    
-    def _type_accuracy(self, y_true, y_pred):
-        # return ∈ n
-        return keras.metrics.binary_accuracy(y_true, y_pred) 
-    
-    def _type_tp_rate2(self, y_true, y_pred):
-        y_pred = K.round(y_pred)
-        matches= K.sum(y_true * y_pred)
-        all_true=K.sum(y_true)
-        
-        # return ∈ 1
-        return matches/all_true
-    
-    def _type_tp_rate(self, y_true, y_pred):
-        y_pred = K.round(y_pred) # ∈ nx1
-        event_filter = y_true[:,0] # ∈ n
-        # y_pred, y_true ∈ nx1
-        y_pred = tf.boolean_mask(y_pred, event_filter)
-        y_true = tf.boolean_mask(y_true, event_filter)
-        # return ∈ n
-        return keras.metrics.binary_accuracy(y_true, y_pred)
-    
-    def _e_cluster_loss(self, y_true, y_pred):
-        event_filter = y_true[:,0] # ∈ n
-        e_cluster = K.reshape(y_true[:,1], (-1,1)) # ∈ nx1
-        # loss ∈ n
-        loss = keras.losses.sparse_categorical_crossentropy(e_cluster, y_pred)
-        
-        # composing _e_cluster_match ; a mask for the matched clusters of e
-        y_pred_sparse = K.cast(K.argmax(y_pred), y_true.dtype) # ∈ n
-        self._e_cluster_pred = y_pred_sparse # ∈ n
-        self._e_cluster_match = K.cast(K.equal(y_true[:,1], y_pred_sparse), 'float32') # [float] ∈ n
-        
-        # return (n * n) ∈ n
-        return event_filter * loss
-    
-    def _p_cluster_loss(self, y_true, y_pred):
-        event_filter = y_true[:,0] # ∈ n
-        p_cluster = K.reshape(y_true[:,1], (-1,1)) # ∈ nx1
-        # loss ∈ n
-        loss = keras.losses.sparse_categorical_crossentropy(p_cluster, y_pred)
-        
-        # composing _p_cluster_match; a mast for the matched clusters of p
-        y_pred_sparse = K.cast(K.argmax(y_pred), y_true.dtype) # ∈ n
-        self._p_cluster_pred = y_pred_sparse # ∈ n
-        self._p_cluster_match = K.cast(K.equal(y_true[:,1], y_pred_sparse), 'float32') # [float] ∈ n
-        
-        # return (n*n) ∈ n
-        return event_filter * loss
-    
-    def _cluster_accuracy(self, y_true, y_pred):
-        event_filter = y_true[:,0] # ∈ n
-        y_true = tf.boolean_mask(y_true, event_filter) # ∈ nx1
-        y_pred = tf.boolean_mask(y_pred, event_filter) # ∈ nx1
-        # return ∈ n
-        return keras.metrics.sparse_categorical_accuracy(y_true[:,1], y_pred)
-    
-    def _pos_loss(self, y_true, y_pred):
-        event_filter = y_true[:,0] # ∈ n
-        e_pos_true = K.reshape(y_true[:,2],(-1,1)) # ∈ nx1
-        e_pos_pred = K.reshape(y_pred[:,0],(-1,1)) # ∈ nx1
-        p_pos_true = K.reshape(y_true[:,4],(-1,1)) # ∈ nx1
-        p_pos_pred = K.reshape(y_pred[:,1],(-1,1)) # ∈ nx1
-        
-        # e pos
-        e_loss = keras.losses.logcosh(e_pos_true, e_pos_pred) # ∈ n
-        e_loss = event_filter * self._e_cluster_match * e_loss # (n*n*n) ∈ n
-        
-        # p pos
-        p_loss = keras.losses.logcosh(p_pos_true, p_pos_pred) # ∈ n
-        p_loss = event_filter * self._p_cluster_match * p_loss # (n*n*n) ∈ n
-        
-        return e_loss + p_loss
-    
-    def _energy_loss(self, y_true, y_pred):
-        event_filter = y_true[:,0] # ∈ n
-        e_enrg_true = K.reshape(y_true[:,1],(-1,1)) # ∈ nx1
-        e_enrg_pred = K.reshape(y_pred[:,0],(-1,1)) # ∈ nx1
-        p_enrg_true = K.reshape(y_true[:,2],(-1,1)) # ∈ nx1
-        p_enrg_pred = K.reshape(y_pred[:,1],(-1,1)) # ∈ nx1
-        
-        e_loss = keras.losses.logcosh(e_enrg_true, e_enrg_pred) # ∈ n
-        e_loss = event_filter * e_loss
-        
-        p_loss = keras.losses.logcosh(p_enrg_true, p_enrg_pred) # ∈ n
-        p_loss = event_filter * p_loss
-        
-        return e_loss + p_loss
     
     def _quality_loss(self, y_true, y_pred):
         event_filter = y_true[:,0] # ∈ n
@@ -358,67 +205,6 @@ class AIQlty:
             
         return pred
     
-    def _find_matches(self, y_true, y_pred, mask=None, keep_length=True):
-        if mask is None:
-            mask = np.ones(9)
-        else:
-            mask = np.asarray(mask)
-            
-        y_true = self.data._denormalize_targets(y_true)
-        y_pred = self.data._denormalize_targets(y_pred)
-        
-        if y_true.shape[1] == 11:
-            y_true = y_true[:,:-2]
-        
-        assert y_true.shape == y_pred.shape
-        assert mask.shape == (y_true.shape[1],)
-        
-        l_matches = []
-        for i in range(y_true.shape[0]):
-            if y_true[i,0] == 0:
-                if keep_length:
-                    l_matches.append(0)
-                continue
-                
-            diff_limit = np.abs(np.concatenate((
-                [.5],
-                [y_true[i,1] * self.energy_factor_limit],
-                [y_true[i,2] * self.energy_factor_limit],
-                self.position_absolute_limit,
-                self.position_absolute_limit
-            )))
-            assert (diff_limit >= 0).all()
-            
-            diff = np.abs(y_true[i]-y_pred[i])
-            diff = diff * mask
-            
-            if np.all(diff <= diff_limit):
-                l_matches.append(1)
-            else:
-                l_matches.append(0)
-        
-        return l_matches
-            
-    def extend_history(self, history):
-        '''Extend the previous training history with the new training history logs'''
-        if self.history is None or self.history=={}:
-            self.history = history.history
-        else:
-            for key in self.history.keys():
-                if key in history.history:
-                    self.history[key].extend(history.history[key])
-                    
-    def append_history(self, logs):
-        '''Append the existing training history with the training logs of a signle epoch'''
-        if self.history is None or self.history=={}:
-            self.history = {}
-            for key in logs.keys():
-                self.history[key] = [logs[key]]
-        else:
-            for key in self.history.keys():
-                if key in logs.keys():
-                    self.history[key].append(logs[key])
-                    
     def plot_training_loss(self, mode='eff', skip=0, smooth=True, summed_loss=True):
         def plot_line(ax, key, label, style, color):
             metric = self.history[key][skip:]
@@ -536,10 +322,16 @@ class AIQlty:
         l_matches = self._find_matches(y_true, y_pred, keep_length=False)
         effeciency = np.mean(l_matches)
         purity = np.sum(l_matches) / np.sum(y_pred[:,0])
+        precision = np.sum(y_pred[:,0] * y_true[:,0]) / np.sum(y_pred[:,0])
+        recall = np.sum(y_pred[:,0] * y_true[:,0]) / np.sum(y_true[:,0])
         
         identified_events = np.array(self._find_matches(y_true, y_pred, keep_length=True, mask=[1]+([0]*8))).astype(bool)
         y_pred = self.data._denormalize_targets(y_pred[identified_events])
         y_true = self.data._denormalize_targets(y_true[identified_events])
+        enrg = np.abs(y_true[:,1:3] - y_pred[:,1:3])
+        enrg = enrg.ravel()
+        mean_enrg = np.mean(enrg)
+        std_enrg = np.std(enrg)
         euc = y_true[:,3:9] - y_pred[:,3:9]
         euc = euc.reshape((-1,3))
         euc = np.power(euc, 2)
@@ -565,14 +357,17 @@ class AIQlty:
                                                                  p_cluster_loss * self.weight_p_cluster))
         print('    -Quality:     {:8.5f} * {:5.2f} = {:7.5f}'.format(qlty_loss, self.weight_qlty, 
                                                                  qlty_loss * self.weight_qlty))
-        print('  Accuracy:   {:8.5f}'.format(type__type_accuracy))
-        print('    -TP rate:     {:8.5f}'.format(type__type_tp_rate))
+        print('  Accuracy:    {:8.5f}'.format(type__type_accuracy))
+        print('    -Precision:   {:8.5f}'.format(precision))
+        print('    -Recall:      {:8.5f}'.format(recall))
         print('    -Cls e rate:  {:8.5f}'.format(e_cluster__cluster_accuracy))
         print('    -Cls p rate:  {:8.5f}'.format(p_cluster__cluster_accuracy))
-        print('  Efficiency: {:8.5f}'.format(effeciency))
-        print('  Purity:     {:8.5f}'.format(purity))
-        print('  Euc mean:   {:8.5f}'.format(mean_euc))
-        print('  Euc std:    {:8.5f}'.format(std_euc))
+        print('  Efficiency:  {:8.5f}'.format(effeciency))
+        print('  Purity:      {:8.5f}'.format(purity))
+        print('  Euc mean:    {:8.5f}'.format(mean_euc))
+        print('  Euc std:     {:8.5f}'.format(std_euc))
+        print('  Energy mean: {:8.5f}'.format(mean_enrg))
+        print('  Energy std:  {:8.5f}'.format(std_enrg))
         
         
         y_pred = self.data.reco_test
@@ -586,6 +381,10 @@ class AIQlty:
         identified_events = np.array(self._find_matches(y_true, y_pred, keep_length=True, mask=[1]+([0]*8))).astype(bool)
         y_pred = self.data._denormalize_targets(y_pred[identified_events])
         y_true = self.data._denormalize_targets(y_true[identified_events])
+        enrg = np.abs(y_true[:,1:3] - y_pred[:,1:3])
+        enrg = enrg.ravel()
+        mean_enrg = np.mean(enrg)
+        std_enrg = np.std(enrg)
         euc = y_true[:,3:9] - y_pred[:,3:9]
         euc = euc.reshape((-1,3))
         euc = np.power(euc, 2)
@@ -594,30 +393,15 @@ class AIQlty:
         std_euc = np.std(euc)
         
         print('\nReco')
-        print('  Accuracy:   {:8.5f}'.format(accuracy))
+        print('  Accuracy:    {:8.5f}'.format(accuracy))
         print('    -TP rate:     {:8.5f}'.format(tp_rate))
-        print('  Efficiency: {:8.5f}'.format(effeciency))
-        print('  Purity:     {:8.5f}'.format(purity))
-        print('  Euc mean:   {:8.5f}'.format(mean_euc))
-        print('  Euc std:    {:8.5f}'.format(std_euc))
+        print('  Efficiency:  {:8.5f}'.format(effeciency))
+        print('  Purity:      {:8.5f}'.format(purity))
+        print('  Euc mean:    {:8.5f}'.format(mean_euc))
+        print('  Euc std:     {:8.5f}'.format(std_euc))
+        print('  Energy mean: {:8.5f}'.format(mean_enrg))
+        print('  Energy std:  {:8.5f}'.format(std_enrg))
 
-    def save(self, file_name):
-        self.model.save_weights(file_name+'.h5', save_format='h5')
-        with open(file_name + '.hst', 'wb') as f_hist:
-            pkl.dump(self.history, f_hist)
-        with open(file_name + '.opt', 'wb') as f_hist:
-            pkl.dump(self.model.optimizer.get_weights(), f_hist)
-        
-            
-    def load(self, file_name, optimizer=False):
-        self.model.load_weights(file_name+'.h5')
-        with open(file_name+'.hst', 'rb') as f_hist:
-            self.history = pkl.load(f_hist)
-        if optimizer:
-            with open(file_name+'.opt', 'rb') as f_hist:
-                self.model.optimizer.set_weights(pkl.load(f_hist))
-        
-            
     def plot_diff(self, mode='type-match', add_reco=True, focus=False, quality_filter=[None, None, None, None]):
         y_pred = self.predict(self.data.test_x)
         for i in range(len(quality_filter)):
@@ -724,73 +508,6 @@ class AIQlty:
             plot_hist(7, 'p position y difference', 1)
             plot_hist(8, 'p position z difference', 1.3)
 
-    def plot_scene(self, pos, is_3d=True):
-        '''Plotting the scene for an event along with the original and 
-        predicited positions of both e & p'''
-
-        # initialize the data to be plotted
-        y_true = self.data._targets[pos:pos+1]
-        y_pred = self.predict(self.data.get_features(pos,pos+1))[:,:-4]
-        clusters = self.data._features[pos:pos+1]
-        is_match = self._find_matches(y_true, y_pred)[0] == 1
-
-        y_true = self.data._denormalize_targets(y_true)[:,:-2].ravel()
-        y_pred = self.data._denormalize_targets(y_pred).ravel()
-        clusters = self.data._denormalize_features(clusters)
-
-        # if the event isn't an ideal compton event, then ignore
-        if y_true[0]==0:
-            print('Not an ideal compton')
-            return False
-
-        clusters = clusters.reshape((-1, self.data.cluster_size))
-        valid_clusters = clusters[:,0] > .5
-        l_clusters = [clusters[valid_clusters,3], clusters[valid_clusters,5], clusters[valid_clusters,4]]
-
-        l_e_targets = [y_true[3], y_true[5], y_true[4]]
-        l_p_targets = [y_true[6], y_true[8], y_true[7]]
-
-        l_e_nn = [y_pred[3], y_pred[5], y_pred[4]]
-        l_p_nn = [y_pred[6], y_pred[8], y_pred[7]]
-
-        fig = plt.figure(figsize=(9,7))
-
-        if is_3d:
-            from mpl_toolkits.mplot3d import Axes3D
-            ax = fig.add_subplot(111, projection='3d')
-            ax.set_xlabel('X axis')
-            ax.set_ylabel('Z axis')
-            ax.set_zlabel('Y axis')
-            plot_client = ax
-        else:
-            l_clusters.pop()
-            l_e_targets.pop()
-            l_p_targets.pop()
-            l_e_nn.pop()
-            l_p_nn.pop()
-            plt.xlabel('X axis')
-            plt.ylabel('Z axis')
-            #plt.ylim((-50,50))
-            plot_client = plt
-
-
-        depthshade = {'depthshade':False} if is_3d else {}
-
-        plot_client.scatter(*l_clusters, marker='+', **depthshade,
-                            s=180, color='tab:blue', label='cluster center')
-        plot_client.scatter(*l_e_targets, marker='*', **depthshade,
-                            s=80, color='tab:red', label='e position')
-        plot_client.scatter(*l_p_targets, marker='*', **depthshade,
-                            s=80, color='tab:orange', label='p position')
-        plot_client.scatter(*l_e_nn, marker='^', **depthshade,
-                            s=60, color='tab:red', label='Network e position')
-        plot_client.scatter(*l_p_nn, marker='^', **depthshade,
-                            s=80, color='tab:orange', label='Network p position')
-
-        plot_client.legend()
-        plt.show()
-        return is_match
-    
     def export_predictions_root(self, root_name, quality_filter=[None, None, None, None]):
         # get the predictions and true values
         y_pred = self.predict(self.data.test_x)
@@ -955,129 +672,3 @@ class AIQlty:
         # closing the root file
         file.close()
         
-    def export_targets_root(self, root_name):
-        # get the true values
-        y_true = self.data.test_row_y
-
-        # filter the results with the identified events
-        identified = y_true[:,0].astype(bool)
-        y_true = y_true[identified,:-2]
-
-        # denormalize the predictions back to the real values
-        y_true = self.data._denormalize_targets(y_true)
-
-        # identify the events with invalid compton cones
-        e = y_true[:,1]
-        p = y_true[:,2]
-        me = 0.510999
-        arc_base = np.abs(1 - me *(1/p - 1/(e+p)))
-        valid_arc = arc_base <= 1
-
-        # filter out invalid events from the predictions and events types
-        y_true = y_true[valid_arc]
-
-        # zeros list
-        size = y_true.shape[0]
-        zeros = np.zeros(size)
-        
-        # create event type list (0:wrong, 1:only pos match, 2:total match)
-        l_event_type = np.ones(size) * 2
-
-        # required fields for the root file
-        e_energy = y_true[:,1]
-        p_energy = y_true[:,2]
-        total_energy = e_energy + p_energy
-
-        e_pos_x = y_true[:,4] # 3, y
-        e_pos_y =-y_true[:,5] # 4, -z
-        e_pos_z =-y_true[:,3] # 5, -x
-
-        p_pos_x = y_true[:,7] # 6, y
-        p_pos_y =-y_true[:,8] # 7, -z
-        p_pos_z =-y_true[:,6] # 8, -x
-
-        arc = np.arccos(1 - me *(1/p_energy - 1/total_energy))
-
-        # create root file
-        file = uproot.recreate(root_name, compression=None)
-
-        # defining the branch
-        branch = {
-            'v_x': 'float32', # electron position
-            'v_y': 'float32',
-            'v_z': 'float32',
-            'v_unc_x': 'float32',
-            'v_unc_y': 'float32',
-            'v_unc_z': 'float32',
-            'p_x': 'float32', # vector pointing from e pos to p pos
-            'p_y': 'float32',
-            'p_z': 'float32',
-            'p_unc_x': 'float32',
-            'p_unc_y': 'float32',
-            'p_unc_z': 'float32',
-            'E0Calc': 'float32', # total energy
-            'E0Calc_unc': 'float32',
-            'arc': 'float32', # formula
-            'arc_unc': 'float32',
-            'E1': 'float32', # e energy
-            'E1_unc': 'float32',
-            'E2': 'float32', # p energy
-            'E2_unc': 'float32',
-            'E3': 'float32', # 0
-            'E3_unc': 'float32',
-            'ClassID': 'int32', #0
-            'EventType': 'int32', # 2-correct  1-pos  0-wrong
-            'EnergyBinID': 'int32', #0
-            'x_1': 'float32', # electron position
-            'y_1': 'float32',
-            'z_1': 'float32',
-            'x_2': 'float32', # photon position
-            'y_2': 'float32',
-            'z_2': 'float32',
-            'x_3': 'float32', # 0
-            'y_3': 'float32',
-            'z_3': 'float32',
-        }
-
-        file['ConeList'] = uproot.newtree(branch, title='Neural network cone list')
-
-        # filling the branch
-        file['ConeList'].extend({
-            'v_x': e_pos_x, 
-            'v_y': e_pos_y,
-            'v_z': e_pos_z,
-            'v_unc_x': zeros,
-            'v_unc_y': zeros,
-            'v_unc_z': zeros,
-            'p_x': p_pos_x - e_pos_x, 
-            'p_y': p_pos_y - e_pos_y,
-            'p_z': p_pos_z - e_pos_z,
-            'p_unc_x': zeros,
-            'p_unc_y': zeros,
-            'p_unc_z': zeros,
-            'E0Calc': total_energy, 
-            'E0Calc_unc': zeros,
-            'arc': arc, 
-            'arc_unc': zeros,
-            'E1': e_energy, 
-            'E1_unc': zeros,
-            'E2': p_energy, 
-            'E2_unc': zeros,
-            'E3': zeros, 
-            'E3_unc': zeros,
-            'ClassID': zeros, 
-            'EventType': l_event_type, 
-            'EnergyBinID': zeros, 
-            'x_1': e_pos_x, 
-            'y_1': e_pos_y,
-            'z_1': e_pos_z,
-            'x_2': p_pos_x, 
-            'y_2': p_pos_y,
-            'z_2': p_pos_z,
-            'x_3': zeros, 
-            'y_3': zeros,
-            'z_3': zeros,
-        })
-
-        # closing the root file
-        file.close()

@@ -38,15 +38,16 @@ class Simulation:
                                       )
         
     def iterate_events(self, basket_size=100000, desc='processing root file', 
-                       bar_update_size=1000):
+                       bar_update_size=1000, entrystart=None):
         '''Iterate throughout all the events within the ROOT file. 
         Returns an event object on each step.
         '''
-        prog_bar = tqdm(total=self.num_entries, ncols=100, file=sys.stdout, desc=desc)
+        total = self.num_entries if entrystart is None else self.num_entries - entrystart
+        prog_bar = tqdm(total=total, ncols=100, file=sys.stdout, desc=desc)
         bar_step = 0
         for start, end, basket in self.tree.iterate(Event.l_leaves, entrysteps=basket_size, 
                                                     reportentries=True, namedecode='utf-8',
-                                                    entrystart=None, entrystop=None):
+                                                    entrystart=entrystart, entrystop=None):
             length = end-start
             for idx in range(length):
                 yield self.__event_at_basket(basket, idx)
@@ -88,6 +89,7 @@ class Simulation:
                       clusters_energy = basket['RecoClusterEnergies.value'][position], 
                       clusters_energy_unc = basket['RecoClusterEnergies.uncertainty'][position], 
                       clusters_entries = basket['RecoClusterEntries'][position],
+                      event_type = basket['SimulatedEventType'][position],
                       scatterer = self.scatterer,
                       absorber = self.absorber,
                       clusters_limit = self.clusters_limit

@@ -14,30 +14,30 @@ class MyCallback(keras.callbacks.Callback):
         self.file_name = file_name
         
         if file_name is not None:
-            with open(self.file_name + '.e', 'w') as f_epoch:
+            with open('ai_files/' + self.file_name + '.e', 'w') as f_epoch:
                 f_epoch.write('')
         
     def on_epoch_end(self, epoch, logs=None):
-        y_pred = self.ai.predict(self.ai.data.train_x)
+        y_pred = self.ai.predict(self.ai.data.train_x)[:,:9]
         y_true = self.ai.data.train_row_y
         l_matches = self.ai._find_matches(y_true, y_pred, keep_length=False)
         logs['eff'] = np.mean(l_matches)
-        logs['pur'] = np.sum(l_matches) / np.sum(y_pred[:,0])
+        logs['pur'] = (np.sum(l_matches) / np.sum(y_pred[:,0])) if np.sum(y_pred[:,0]) != 0 else 0
         
-        y_pred = self.ai.predict(self.ai.data.validation_x)
+        y_pred = self.ai.predict(self.ai.data.validation_x)[:,:9]
         y_true = self.ai.data.validation_row_y
         l_matches = self.ai._find_matches(y_true, y_pred, keep_length=False)
         logs['val_eff'] = np.mean(l_matches)
-        logs['val_pur'] = np.sum(l_matches) / np.sum(y_pred[:,0])
+        logs['val_pur'] = (np.sum(l_matches) / np.sum(y_pred[:,0])) if np.sum(y_pred[:,0]) != 0 else 0
         
         self.ai.append_history(logs)
         self.ai.save(self.file_name)
         
         if self.file_name is not None:
-            with open(self.file_name + '.e', 'a') as f_epoch:
+            with open('ai_files/' + self.file_name + '.e', 'a') as f_epoch:
                 now = dt.datetime.now()
-                f_epoch.write('loss:{:5.3f} eff:{:5.3f}/{:5.3f} in epoch {:3d} at {} {}\n'.format(
-                    logs['loss'], logs['eff'], logs['val_eff'], 
+                f_epoch.write('loss:{:5.3f} - eff:{:5.3f} pur:{:5.3f} in epoch {:3d} at {} {}\n'.format(
+                    logs['loss'], logs['val_eff'], logs['val_pur'], 
                     epoch, now.date().isoformat(), now.strftime('%H:%M:%S')))
 
         
@@ -47,11 +47,14 @@ class AI:
         '''
         self.data = data_model
         
+        # the threshold of predicting a compton of a sigmoid (0,1)
+        self.type_threshold = .5
+        
         self.history = {}
         self.model = None
         
         self.energy_factor_limit= .06 * 2
-        self.position_absolute_limit = np.array([1.3, 5, 1.3]) * 2
+        self.position_absolute_limit = np.array([1.3, 10, 1.3]) * 2
         
         self.weight_type = 2
         self.weight_e_cluster = 1
@@ -63,16 +66,13 @@ class AI:
         
         self.callback = MyCallback(self, model_name)
         
-    def train(self,*, epochs=100, verbose=0, shuffle=True, 
-              shuffle_clusters=False, callbacks=None):
+    def train(self,*, epochs=100, verbose=0, shuffle_clusters=False, callbacks=[]):
         '''Trains the AI for a fixed number of epoches
         '''
-        if callbacks is None:
-            callbacks = [self.callback]
-        else:
+        if self.callback not in callbacks:
             callbacks.append(self.callback)
             
-        history = self.model.fit(self.data.generate_batch(shuffle=shuffle, augment=shuffle_clusters), 
+        history = self.model.fit(self.data.generate_batch(augment=shuffle_clusters), 
                        epochs=epochs, steps_per_epoch=self.data.steps_per_epoch, 
                        validation_data=(self.data.validation_x, self.data.validation_y), 
                        verbose=verbose, callbacks = callbacks)
@@ -292,7 +292,8 @@ class AI:
     
     def predict(self, data, denormalize=False, verbose=0):
         pred = self.model.predict(data)
-        pred = np.concatenate([np.round(pred[2]), 
+        type_pred = (pred[2] >= self.type_threshold).astype(int)
+        pred = np.concatenate([type_pred,
                 pred[6], 
                 pred[3][:,[0]], pred[4][:,[0]], pred[5][:,[0]], 
                 pred[3][:,[1]], pred[4][:,[1]], pred[5][:,[1]], 
@@ -450,17 +451,23 @@ class AI:
         l_matches = self._find_matches(y_true, y_pred, keep_length=False)
         effeciency = np.mean(l_matches)
         purity = np.sum(l_matches) / np.sum(y_pred[:,0])
+        precision = np.sum(y_pred[:,0] * y_true[:,0]) / np.sum(y_pred[:,0])
+        recall = np.sum(y_pred[:,0] * y_true[:,0]) / np.sum(y_true[:,0])
         
         identified_events = np.array(self._find_matches(y_true, y_pred, keep_length=True, mask=[1]+([0]*8))).astype(bool)
         y_pred = self.data._denormalize_targets(y_pred[identified_events])
         y_true = self.data._denormalize_targets(y_true[identified_events])
+        enrg = np.abs(y_true[:,1:3] - y_pred[:,1:3])
+        enrg = enrg.ravel()
+        mean_enrg = np.mean(enrg)
+        std_enrg = np.std(enrg)
         euc = y_true[:,3:9] - y_pred[:,3:9]
         euc = euc.reshape((-1,3))
         euc = np.power(euc, 2)
         euc = np.sqrt(np.sum(euc, axis=1))
         mean_euc = np.mean(euc)
         std_euc = np.std(euc)
-                
+        
         print('AI model')
         print('  Loss:       {:8.5f}'.format(loss))
         print('    -Type:        {:8.5f} * {:5.2f} = {:7.5f}'.format(type_loss, self.weight_type, 
@@ -477,14 +484,17 @@ class AI:
                                                                  e_cluster_loss * self.weight_e_cluster))
         print('    -Cls p:       {:8.5f} * {:5.2f} = {:7.5f}'.format(p_cluster_loss, self.weight_p_cluster, 
                                                                  p_cluster_loss * self.weight_p_cluster))
-        print('  Accuracy:   {:8.5f}'.format(type__type_accuracy))
-        print('    -TP rate:     {:8.5f}'.format(type__type_tp_rate))
+        print('  Accuracy:    {:8.5f}'.format(type__type_accuracy))
+        print('    -Precision:   {:8.5f}'.format(precision))
+        print('    -Recall:      {:8.5f}'.format(recall))
         print('    -Cls e rate:  {:8.5f}'.format(e_cluster__cluster_accuracy))
         print('    -Cls p rate:  {:8.5f}'.format(p_cluster__cluster_accuracy))
-        print('  Efficiency: {:8.5f}'.format(effeciency))
-        print('  Purity:     {:8.5f}'.format(purity))
-        print('  Euc mean:   {:8.5f}'.format(mean_euc))
-        print('  Euc std:    {:8.5f}'.format(std_euc))
+        print('  Efficiency:  {:8.5f}'.format(effeciency))
+        print('  Purity:      {:8.5f}'.format(purity))
+        print('  Euc mean:    {:8.5f}'.format(mean_euc))
+        print('  Euc std:     {:8.5f}'.format(std_euc))
+        print('  Energy mean: {:8.5f}'.format(mean_enrg))
+        print('  Energy std:  {:8.5f}'.format(std_enrg))
         
         
         y_pred = self.data.reco_test
@@ -498,6 +508,10 @@ class AI:
         identified_events = np.array(self._find_matches(y_true, y_pred, keep_length=True, mask=[1]+([0]*8))).astype(bool)
         y_pred = self.data._denormalize_targets(y_pred[identified_events])
         y_true = self.data._denormalize_targets(y_true[identified_events])
+        enrg = np.abs(y_true[:,1:3] - y_pred[:,1:3])
+        enrg = enrg.ravel()
+        mean_enrg = np.mean(enrg)
+        std_enrg = np.std(enrg)
         euc = y_true[:,3:9] - y_pred[:,3:9]
         euc = euc.reshape((-1,3))
         euc = np.power(euc, 2)
@@ -506,27 +520,30 @@ class AI:
         std_euc = np.std(euc)
         
         print('\nReco')
-        print('  Accuracy:   {:8.5f}'.format(accuracy))
-        print('    -TP rate:     {:8.5f}'.format(tp_rate))
-        print('  Efficiency: {:8.5f}'.format(effeciency))
-        print('  Purity:     {:8.5f}'.format(purity))
-        print('  Euc mean:   {:8.5f}'.format(mean_euc))
-        print('  Euc std:    {:8.5f}'.format(std_euc))
-
+        print('  Accuracy:    {:8.5f}'.format(accuracy))
+        print('    -Recall:      {:8.5f}'.format(tp_rate))
+        print('  Efficiency:  {:8.5f}'.format(effeciency))
+        print('  Purity:      {:8.5f}'.format(purity))
+        print('  Euc mean:    {:8.5f}'.format(mean_euc))
+        print('  Euc std:     {:8.5f}'.format(std_euc))
+        print('  Energy mean: {:8.5f}'.format(mean_enrg))
+        print('  Energy std:  {:8.5f}'.format(std_enrg))
+        
+        
     def save(self, file_name):
-        self.model.save_weights(file_name+'.h5', save_format='h5')
-        with open(file_name + '.hst', 'wb') as f_hist:
+        self.model.save_weights('ai_files/' + file_name+'.h5', save_format='h5')
+        with open('ai_files/' + file_name + '.hst', 'wb') as f_hist:
             pkl.dump(self.history, f_hist)
-        with open(file_name + '.opt', 'wb') as f_hist:
+        with open('ai_files/' + file_name + '.opt', 'wb') as f_hist:
             pkl.dump(self.model.optimizer.get_weights(), f_hist)
         
             
     def load(self, file_name, optimizer=False):
-        self.model.load_weights(file_name+'.h5')
-        with open(file_name+'.hst', 'rb') as f_hist:
+        self.model.load_weights('ai_files/' + file_name+'.h5')
+        with open('ai_files/' + file_name+'.hst', 'rb') as f_hist:
             self.history = pkl.load(f_hist)
         if optimizer:
-            with open(file_name+'.opt', 'rb') as f_hist:
+            with open('ai_files/' + file_name+'.opt', 'rb') as f_hist:
                 self.model.optimizer.set_weights(pkl.load(f_hist))
         
             
@@ -635,7 +652,7 @@ class AI:
 
         # initialize the data to be plotted
         y_true = self.data._targets[pos:pos+1]
-        y_pred = self.predict(self.data.get_features(pos,pos+1))
+        y_pred = self.predict(self.data.get_features(pos,pos+1))[:,:9]
         clusters = self.data._features[pos:pos+1]
         is_match = self._find_matches(y_true, y_pred)[0] == 1
 
@@ -720,12 +737,12 @@ class AI:
         me = 0.510999
         arc_base = np.abs(1 - me *(1/p - 1/(e+p)))
         valid_arc = arc_base <= 1
-        origin_seq_no = self.data._seq[self.data.test_start_pos:][identified]
-
+        
         # filter out invalid events from the predictions and events types
         y_pred = y_pred[valid_arc]
         l_all_match = np.array(l_all_match)[valid_arc]
         l_pos_match = np.array(l_pos_match)[valid_arc]
+        origin_seq_no = origin_seq_no[valid_arc]
 
         # create event type list (0:wrong, 1:only pos match, 2:total match)
         l_event_type = np.zeros(len(l_all_match))
@@ -794,7 +811,7 @@ class AI:
         }
 
         file['ConeList'] = uproot.newtree(branch, title='Neural network cone list')
-
+        
         # filling the branch
         file['ConeList'].extend({
             'GlobalEventNumber': origin_seq_no,
@@ -860,6 +877,7 @@ class AI:
         # filter the results with the identified events
         identified = y_true[:,0].astype(bool)
         y_true = y_true[identified,:-2]
+        origin_seq_no = self.data._seq[self.data.test_start_pos:][identified]
 
         # denormalize the predictions back to the real values
         y_true = self.data._denormalize_targets(y_true)
@@ -873,6 +891,7 @@ class AI:
 
         # filter out invalid events from the predictions and events types
         y_true = y_true[valid_arc]
+        origin_seq_no = origin_seq_no[valid_arc]
 
         # zeros list
         size = y_true.shape[0]
@@ -901,6 +920,7 @@ class AI:
 
         # defining the branch
         branch = {
+            'GlobalEventNumber': 'int32', # event sequence in the original simulation file
             'v_x': 'float32', # electron position
             'v_y': 'float32',
             'v_z': 'float32',
@@ -941,6 +961,7 @@ class AI:
 
         # filling the branch
         file['ConeList'].extend({
+            'GlobalEventNumber': origin_seq_no,
             'v_x': e_pos_x, 
             'v_y': e_pos_y,
             'v_z': e_pos_z,

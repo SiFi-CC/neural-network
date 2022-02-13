@@ -12,21 +12,22 @@ class Event:
     '''
     
     # list of leaves that are required from a ROOT file to properly instantiate an Event object
-    l_leaves = ['Energy_Primary', 'RealEnergy_e', 'RealEnergy_p', 'RealPosition_source', 
+    l_leaves = ['Energy_Primary', 'RealEnergy_e', 'RealEnergy_p', 'RealPosition_source', 'SimulatedEventType',
                 'RealDirection_source', 'RealComptonPosition', 'RealDirection_scatter', 'RealPosition_e', 
                 'RealInteractions_e', 'RealPosition_p', 'RealInteractions_p', 'Identified', 'PurCrossed',
                 'RecoClusterPositions.position', 'RecoClusterPositions.uncertainty', 'RecoClusterEnergies', 
-                'RecoClusterEnergies.value', 'RecoClusterEnergies.uncertainty', 'RecoClusterEntries'
+                'RecoClusterEnergies.value', 'RecoClusterEnergies.uncertainty', 'RecoClusterEntries', 
                ]
     
     def __init__(self, real_primary_energy, real_e_energy, real_p_energy, real_e_positions, 
                  real_e_interactions, real_p_positions, real_p_interactions, real_src_pos, real_src_dir, 
                  real_compton_pos, real_scatter_dir, identification_code, crossed, clusters_count, 
                  clusters_position, clusters_position_unc, clusters_energy, clusters_energy_unc, 
-                 clusters_entries,
+                 clusters_entries, event_type,
                  scatterer, absorber, clusters_limit
                 ):
         # define the main values of a simulated event
+        self.event_type = event_type
         self.real_primary_energy = real_primary_energy
         self.real_e_energy = real_e_energy
         self.real_p_energy = real_p_energy
@@ -103,13 +104,15 @@ class Event:
         # e and p is in the different modules of SiFiCC
         if self.is_complete_compton \
                 and scatterer.is_point_inside_x(self.real_e_position) \
-                and absorber.is_point_inside_x(self.real_p_position):
+                and absorber.is_point_inside_x(self.real_p_position) \
+                and self.event_type == 2:
             self.is_ideal_compton = True
             self.is_ep = True
             self.is_pe = False
         elif self.is_complete_compton \
                 and scatterer.is_point_inside_x(self.real_p_position) \
-                and absorber.is_point_inside_x(self.real_e_position):
+                and absorber.is_point_inside_x(self.real_e_position) \
+                and self.event_type == 2:
             self.is_ideal_compton = True
             self.is_ep = False
             self.is_pe = True
@@ -241,7 +244,7 @@ class Event:
                 
         return closest_idx
     
-    def get_features(self):
+    def get_features(self, sort=True):
         '''Generate and return the training features of the event. Features are of the form:
         [ cluster-1, cluster-2, ..., cluster-n ]
         
@@ -257,7 +260,10 @@ class Event:
         Output feature dimention is 1x(9*clusters_limit)'''
         
         # sort the clusters and align the number of clusters to match `clusters_limit`
-        self._sort_clusters()
+        if sort:
+            self._sort_clusters()
+        else:
+            self._aggregate_max_clusters()
         self._align_clusters()
         
         # build the list of clusters features
@@ -291,7 +297,7 @@ class Event:
 
         # return the features only if the event is an ideal compton
         # otherwise return 0s
-        if self.is_ideal_compton:
+        if self.is_distributed_clusters and self.is_ideal_compton:
             
             # find cluster index of both e & p
             if self.e_clusters_count == 1:
