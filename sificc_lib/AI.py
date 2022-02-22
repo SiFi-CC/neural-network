@@ -76,8 +76,7 @@ class AI:
                        epochs=epochs, steps_per_epoch=self.data.steps_per_epoch, 
                        validation_data=(self.data.validation_x, self.data.validation_y), 
                        verbose=verbose, callbacks = callbacks)
-        #self.extend_history(history)
-    
+        
     def create_model(self, conv_layers=[], classifier_layers=[], dense_layers=[],
                      type_layers=[], pos_layers=[], energy_layers=[], 
                      base_l2=0, limbs_l2=0, 
@@ -402,13 +401,13 @@ class AI:
             plot_metric(ax1, 'eff', 'Effeciency', 'tab:pink')
             plot_metric(ax1, 'pur', 'Purity', 'tab:orange')
         elif mode == 'loss':
-            plot_metric(ax2, 'e_cluster_loss', 'Cluster e', 'tab:pink')
-            plot_metric(ax2, 'p_cluster_loss', 'Cluster p', 'tab:orange')
-            plot_metric(ax2, 'pos_x_loss', 'Pos x', 'tab:brown')
-            plot_metric(ax2, 'pos_y_loss', 'Pos y', 'tab:red')
-            plot_metric(ax2, 'pos_z_loss', 'Pos z', 'tab:purple')
-            plot_metric(ax2, 'type_loss', 'Type', 'tab:orange')
-            plot_metric(ax2, 'energy_loss', 'Energy', 'tab:cyan')
+            plot_metric(ax1, 'e_cluster_loss', 'Cluster e', 'tab:pink')
+            plot_metric(ax1, 'p_cluster_loss', 'Cluster p', 'tab:orange')
+            plot_metric(ax1, 'pos_x_loss', 'Pos x', 'tab:brown')
+            plot_metric(ax1, 'pos_y_loss', 'Pos y', 'tab:red')
+            plot_metric(ax1, 'pos_z_loss', 'Pos z', 'tab:purple')
+            plot_metric(ax1, 'type_loss', 'Type', 'tab:orange')
+            plot_metric(ax1, 'energy_loss', 'Energy', 'tab:cyan')
         elif mode == 'loss-cluster':
             plot_metric(ax2, 'e_cluster_loss', 'Cluster e', 'tab:pink')
             plot_metric(ax2, 'p_cluster_loss', 'Cluster p', 'tab:orange')
@@ -586,11 +585,6 @@ class AI:
         diff = diff[l_matches]
         reco_diff = reco_diff[l_reco_matches]
 
-        #print('{:6.0f} total Compton events'.format(np.sum(y_true[:,0])))
-        #print('{:6d} NN matched events'.format(np.sum(l_matches)))
-        #print('{:6d} Reco matched events'.format(np.sum(l_reco_matches)))
-
-
         fig_size = (10,4)
 
         def plot_hist(pos, title, width, x_min=None, x_max=None):
@@ -616,11 +610,9 @@ class AI:
             if add_reco:
                 n, bins, _ = plt.hist(reco_data, np.arange(x_min, x_max, width), histtype='step', 
                                       label='Cut-based reco', color='tab:orange')
-                #plt.plot((bins[np.argmax(n)]+bins[np.argmax(n)+1])/2, n.max(), '.', color='tab:orange')
                 
             n, bins, _ = plt.hist(data, np.arange(x_min, x_max, width), histtype='step', 
                                   label='SiFi-CC NN', color='tab:blue')
-            #plt.plot((bins[np.argmax(n)]+bins[np.argmax(n)+1])/2, n.max(), '.', color='tab:blue')
             
             plt.ylabel('Count')
             plt.legend()
